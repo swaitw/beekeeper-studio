@@ -1,15 +1,13 @@
 <template>
-
   <div class="sidebar-wrap row">
     <global-sidebar
+      v-if="!minimalMode"
       @selected="click"
       v-on="$listeners"
-      :activeItem="activeItem"
-    ></global-sidebar>
+      :active-item="activeItem"
+    />
 
     <div class="tab-content">
-
-
       <!-- Tables -->
       <div
         class="tab-pane"
@@ -17,8 +15,10 @@
         :class="tabClasses('tables')"
         v-show="activeItem === 'tables'"
       >
-        <database-dropdown @databaseSelected="databaseSelected" :connection="connection"></database-dropdown>
-        <table-list></table-list>
+        <database-dropdown
+          @databaseSelected="databaseSelected"
+        />
+        <table-list />
       </div>
 
       <!-- History -->
@@ -28,11 +28,7 @@
         v-show="activeItem === 'history'"
         :class="tabClasses('history')"
       >
-        <div class="sidebar-heading">
-          <span class="sidebar-title">History</span>
-          <span class="expand"></span>
-        </div>
-        <history-list></history-list>
+        <history-list />
       </div>
 
       <!-- Favorites -->
@@ -42,27 +38,24 @@
         :class="tabClasses('queries')"
         v-show="activeItem === 'queries'"
       >
-        <div class="sidebar-heading">
-          <span class="sidebar-title">Saved Queries</span>
-          <span class="expand"></span>
-        </div>
-        <favorite-list></favorite-list>
+        <favorite-list />
       </div>
-
     </div>
-
   </div>
 </template>
 
 <script>
   import _ from 'lodash'
-  import GlobalSidebar from './GlobalSidebar'
-  import TableList from './core/TableList'
-  import HistoryList from './core/HistoryList'
-  import FavoriteList from './core/FavoriteList'
-  import DatabaseDropdown from './core/DatabaseDropdown'
+  import GlobalSidebar from './GlobalSidebar.vue'
+  import TableList from './core/TableList.vue'
+  import HistoryList from './core/HistoryList.vue'
+  import FavoriteList from './core/FavoriteList.vue'
+  import DatabaseDropdown from './core/DatabaseDropdown.vue'
 
-  import { mapState } from 'vuex'
+  import { mapState, mapGetters } from 'vuex'
+  import rawLog from 'electron-log'
+
+  const log = rawLog.scope('core-sidebar')
 
   export default {
     props: ['sidebarShown'],
@@ -91,7 +84,15 @@
           .value()
         return _.concat(startsWithFilter, containsFilter)
       },
-      ...mapState(['tables', 'connection', 'database']),
+      ...mapState(['tables', 'database']),
+      ...mapGetters(['minimalMode']),
+    },
+    watch: {
+      minimalMode() {
+        if (this.minimalMode) {
+          this.activeItem = 'tables'
+        }
+      },
     },
     methods: {
       tabClasses(item) {
@@ -107,7 +108,10 @@
         }
       },
       async databaseSelected(db) {
-        await this.$store.dispatch('changeDatabase', db)
+        log.info("Pool database selected", db)
+        this.$store.dispatch('changeDatabase', db).catch((e) => {
+          this.$noty.error(e.message);
+        })
         this.allExpanded = false
       },
       async disconnect() {

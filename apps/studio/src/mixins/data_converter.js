@@ -2,7 +2,7 @@ import _ from 'lodash'
 
 export default {
     methods: {
-        dataToTableData(data, columns) {
+        dataToTableData(data, columns, offset = 0) {
             /*
               var data = [
                 {id:1, name:"Oli Bob", age:"12", col:"red", dob:""},
@@ -13,8 +13,8 @@ export default {
               ];
             */
           const columnNamesOnly = columns.map((c) => c.field)
-          return data.rows.map((row) => {
-          return _.pick(row, columnNamesOnly)
+          return data.rows.map((row, idx) => {
+            return _.pick(row, columnNamesOnly)
           })
         },
         extractColumns(data) {

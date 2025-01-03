@@ -1,4 +1,4 @@
-import { splitQueries, extractParams } from "../../../../src/lib/db/sql_tools";
+import { splitQueries, removeQueryQuotes, extractParams } from "../../../../src/lib/db/sql_tools";
 
 const testCases = {
   "select* from foo; select * from bar": 2,
@@ -28,44 +28,33 @@ describe("Query Splitter", () => {
   })
 })
 
-describe("extractParams", () => {
-  it("should extract params", () => {
-    const testCases = {
-      ":foo": [":foo"],
-      "$1, $2": ["$1", "$2"],
-      "select * from :bar": [":bar"],
-      "select * from :bananas where :bananas": [":bananas"]
-    }
+const unquoteTestCases = {
+  "SELECT * FROM foo;": `SELECT * FROM foo;`,
+  "\"SELECT * FROM foo;\"": `SELECT * FROM foo;`,
+  "\"this is not a query\"": `"this is not a query"`,
+  "'this is not a query'": `'this is not a query'`,
+  "`this is not a query`": '`this is not a query`',
+  "\"select foo, bar from baz where bar like '%;';\"": `select foo, bar from baz where bar like '%;';`,
+  "'select foo, bar from baz where bar like '%;';'": `select foo, bar from baz where bar like '%;';`,
+  "`select foo, bar from baz where bar like '%;';`": `select foo, bar from baz where bar like '%;';`,
+  "\n\n\"SELECT * FROM foo;\"": `SELECT * FROM foo;`,
+  "\n\n'SELECT * FROM foo;'": `SELECT * FROM foo;`,
+  "\n\n`SELECT * FROM foo;`": `SELECT * FROM foo;`,
+  "\"SELECT * FROM foo;\"\n\n\n     ": `SELECT * FROM foo;`,
+  "'SELECT * FROM foo;'\n\n\n     ": `SELECT * FROM foo;`,
+  "`SELECT * FROM foo;`\n\n\n     ": `SELECT * FROM foo;`,
+  "\n\n\n\n\"SELECT * FROM bar;\"\n\n\n\n    ": `SELECT * FROM bar;`,
+  "\n\n\n\n'SELECT * FROM bar;'\n\n\n\n    ": `SELECT * FROM bar;`,
+  "\n\n\n\n`SELECT * FROM bar;`\n\n\n\n    ": `SELECT * FROM bar;`,
+}
 
-    Object.keys(testCases).forEach(query => {
-      const expected = testCases[query]
-      expect(extractParams(query)).toStrictEqual(expected)
-    })
-  })
-
-  it("shouldn't extract typecast params", () => {
-    const testCases = {
-      ":: foo": [],
-      "Something :: float": [],
-      "select lifetime_session_count / days_since_birth ::float as avg_daily_sessions": []
-    }
-    Object.keys(testCases).forEach(query => {
-      const expected = testCases[query]
-      expect(extractParams(query)).toStrictEqual(expected)
-    })
-  })
-
-  it("shouldn't extract these params", () => {
-    const testCases = {
-      ":one:": [],
-      ": two :": [],
-      "SELECT 'a' REGEXP '^[[:alpha:]]'": [],
-      "update products set title='{\"desc\":null}' where id='aa';": [], // literal JSON null
-      "update products set title='{\"desc\": null}' where id='aa';": [], // literal JSON null
-    }
-    Object.keys(testCases).forEach(query => {
-      const expected = testCases[query]
-      expect(extractParams(query)).toStrictEqual(expected)
+describe("Query Unquoter", () => {
+  it("should unquote queries that are quoted, and leave the others", () => {
+    Object.keys(unquoteTestCases).forEach(possibleQuery => {
+      const expected = unquoteTestCases[possibleQuery];
+      const result = removeQueryQuotes(possibleQuery, "generic");
+      expect(result).toBe(expected);
     })
   })
 })
+

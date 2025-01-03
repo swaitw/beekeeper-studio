@@ -37,7 +37,7 @@
     line-height: 28px;
     .sidebar-title {
       flex: 0 1 100%;
-      color: $text-dark;    
+      color: $text-dark;
       font-weight: 500;
       letter-spacing: 0.05rem;
       padding: 0 $gutter-h;
@@ -62,14 +62,25 @@
         padding: 0 $gutter-w;
       }
     }
+
+    #tab-tables {
+      .table-list, .list-group {
+        padding-left: 0.3rem;
+      }
+    }
   }
 
   // Empty
   // ---------------------------------
   .empty {
-    padding: $gutter-h ($gutter-w + $gutter-h);
+    padding: $gutter-w;
     color: $text;
-    font-size: 90%;
+    font-size: 0.85rem;
+    .empty-actions {
+      .btn {
+        margin-top: $gutter-h * 2;
+      }
+    }
   }
 
   // Sidebar Header
@@ -80,7 +91,7 @@
     height: $input-height;
     min-height: $input-height;
     padding: 0 $gutter-h 0 0;
-    margin-top: ($gutter-w * 0.75);
+    margin-top: ($gutter-w * 0.25);
     margin-bottom: $gutter-h;
     background: rgba($theme-base, 0.08);
     transition: background 0.15s ease-in-out;
@@ -108,24 +119,6 @@
           color: $text-dark;
         }
       }
-    }
-  }
-  .database-select {
-    display: block;
-    font-size: 100%;
-    margin: 0;
-    width: 100%;
-    border: 0;
-    .selectise-trigger {
-      color: $db-select-text;
-      border-radius: $input-radius;
-      height: $input-height * 1.1;
-      &::after {
-        border-color: $db-select-text transparent transparent transparent;
-      }
-    }
-    &:focus {
-      outline: 0;
     }
   }
 
@@ -163,7 +156,7 @@
         }
         &:hover, &:focus {
           box-shadow: none;
-          .material-icons {
+          .material-icons, .material-icons-outlined {
             color: $text-dark;
           }
         }
@@ -198,7 +191,7 @@
           display: none;
         }
       }
-      .material-icons {
+      .material-icons, .material-icons-outlined {
         font-size: 14px;
         line-height: 26px;
         width: 14px;
@@ -206,22 +199,23 @@
       }
     }
   }
-  
+  .create-table {
+    color: $text;
+    transition: color 0.2s ease-in-out;
+    &:hover {
+      color: $theme-base;
+    }
+  }
   .toolbar {
-    // position: absolute;
-    // bottom: 5px;
-    // left: 0;
-    // width: 100%;
     margin-right: 0;
     margin-left: 0;
-    // background: darken($theme-bg, 3%);
     padding: $gutter-h ($gutter-h * 0.5);
     .btn {
       min-width: 0;
     }
   }
 }
-.table-list, 
+.table-list,
 .sidebar-list {
   flex-grow: 1;
 }
@@ -240,41 +234,45 @@
 
   display: flex;
   align-items: center;
-  padding: $gutter-w $gutter-w ($gutter-h * 0.5);
-  padding-right: $gutter-h;
-  background: transparent;
-  // border-top: 1px solid $border-color;
-  .sub {
-    color: $text-dark;
-    line-height: 1;
-    padding: 0 $gutter-h;
-    div {
-      display: flex;
-      align-items: center;
-      padding-top: 1px;
-      color: $text-dark;
-    }
-    .badge {
-      font-size: 90%;
-      font-weight: normal;
-      color: $text;
-      margin-top: -0.1rem;
-      margin-left: ($gutter-h * 0.75);
-      border-radius: $list-heading-height;
-      background: $border-color;
-      &.active {
-        color: $theme-primary;
-      }
+  padding: $gutter-w $gutter-w $gutter-w * 0.5;
+  color: $text-dark;
+  .badge {
+    font-size: 0.7rem;
+    font-weight: normal;
+    color: $text;
+    margin-top: -0.1rem;
+    margin-left: ($gutter-h * 0.75);
+    border-radius: $list-heading-height;
+    background: $border-color;
+    &.active {
+      color: $theme-primary;
     }
   }
   .actions {
-    padding-right: $gutter-h;
-    a {
-      margin: 0 ($gutter-h * 0.5);
-      margin-right: 0;
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+    gap: $gutter-h;
+    letter-spacing: normal;
+    & button {
+      font-size: inherit;
+      line-height: inherit;
       padding: 0;
+      border: 0;
+      background-color: transparent;
+      display: flex;
+      cursor: pointer;
     }
-    .material-icons {
+    x-button {
+      height: auto;
+    }
+    & > * {
+      visibility: hidden;
+    }
+    & .create-table {
+      visibility: visible;
+    }
+    .material-icons, .material-icons-outlined {
       font-size: 16px;
       color: $text-light;
       &:hover {
@@ -282,30 +280,51 @@
       }
     }
   }
+  x-menuitem .menu-icon {
+    padding-left: 0.4rem;
+  }
 }
 .list-body {
   flex: 1 1 auto;
+  // Why was this 0? Because of Chrome being a derp.
   height: 0;
-  // max-height: -webkit-fill-available;
-  padding: $gutter-h 0 ($gutter * 0.75);
-  overflow: hidden;
+  overflow: auto;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch!important;
+  padding-left: $gutter-w - 0.4rem;
+  padding-bottom: 0.6rem;
+  &.list-body-empty {
+    flex: 0;
+  }
 }
 .list-group {
   display: flex;
   flex-direction: column;
-  padding: 0;    
+  padding: 0;
   flex: 1 1 auto;
+  height: 100%;
   &:hover{
-    .list-heading .actions {
+    .list-heading .actions > * {
       visibility: visible;
     }
   }
-  .list-heading .actions {
+  .actions-btn {
+    i {
+      color: $text-light;
+      transition: color 0.15s ease-in-out;
+      &:hover {
+        color: $text-dark;
+      }
+    }
+  }
+  .subtitle {
+    color: $text-lighter;
+    font-size: 85%;
     display: flex;
     align-items: center;
-    visibility: hidden;
+  }
+  .error-alert {
+    margin: $gutter-h $gutter-w;
   }
   .btn-wrap {
     padding: $gutter-w;
@@ -316,11 +335,15 @@
     flex: 0 1 100%;
   }
   .list-item {
-    padding: 0 $gutter-w;
+    --level: 0;
+    margin-left: calc(1.2rem * var(--level));
+
+    &.schema-item:not(:first-child) {
+      margin-top: $gutter-h;
+    }
   }
   .list-item-btn {
     color: rgba($theme-base, 0.77);
-    padding: 0 $gutter-h;
     // margin-right: $gutter-h;
     line-height: 1.8rem;
     height: 1.8rem;
@@ -356,10 +379,10 @@
     }
     .item-text {
       font-size: 1rem;
-      padding-bottom: $gutter-h * 0.5;
+      // padding-bottom: $gutter-h * 0.5;
     }
     .title {
-      @extend .truncate;
+      @include truncate;
     }
     .badge {
       display: inline-flex;
@@ -369,7 +392,7 @@
       font-size: 0.8rem;
       margin: 0;
       span {
-        @extend .truncate;
+        @include truncate;
       }
     }
     .actions {
@@ -392,8 +415,20 @@
         }
         &.pinned {
           display: inline-flex;
-          i {
+          i.bk-pin {
             color: $theme-primary;
+          }
+          i.material-icons {
+            display:none;
+          }
+
+          &:hover {
+            i.material-icons {
+              display: inline;
+            }
+            i.bk-pin {
+              display: none;
+            }
           }
         }
       }
@@ -506,4 +541,64 @@
       display: flex;
     }
   }
+
+}
+
+// Folder Group
+#sidebar {
+  .folder-group {
+    position: relative;
+    .folder-btn {
+      display: flex;
+      align-items: center;
+      padding-left: 0;
+      border-radius: 4px;
+      color: rgba($theme-base, 0.77);
+      .btn-fab {
+        display: inline-flex!important;
+        margin-right: $gutter-h * 0.5;
+      }
+      &:hover {
+        background: rgba($theme-base, 0.035);
+        .material-icons:first-child {
+          color: $text-dark;
+        }
+      }
+      .schema-icon {
+        line-height: 1.9;
+      }
+      &.open {
+        .open-close {
+          transform: rotate(90deg);
+        }
+      }
+    }
+    > div {
+      position: relative;
+    }
+    .list-item {
+      padding-left: $gutter-h * 0.5;
+      &:before {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 9px;
+        border-left: 1px solid rgba($theme-base,0.08);
+      }
+
+      .sub-items {
+        margin-left: $gutter-h * 2;
+      }
+      .list-item-btn {
+        margin-left: $gutter-w;
+      }
+      &.empty {
+        padding: $gutter-h;
+        padding-left: $gutter-w * 1.8;
+        color: $text-lighter;
+      }
+    }
+  }
+
 }

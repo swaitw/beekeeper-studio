@@ -1,5 +1,5 @@
-
-
+import { IndexColumn, SchemaItem, TableKey } from "@shared/lib/dialects/models";
+import { BackupConfig } from "./models/BackupConfig";
 
 export abstract class BeeCursor {
   constructor(public chunkSize: number) {
@@ -13,20 +13,37 @@ export abstract class BeeCursor {
   }
 }
 
+export class NoOpCursor extends BeeCursor {
+  async start(): Promise<void> {
+    // yes
+  }
+  async read(): Promise<any[][]> {
+    return []
+  }
+  async cancel(): Promise<void> {
+    // yes
+  }
+
+}
+
 export interface StreamResults {
   columns: TableColumn[],
   totalRows: number,
   cursor: BeeCursor
 }
 
-
-
-
-export interface TableOrView {
-  schema: string;
+export interface DatabaseEntity {
+  schema?: string;
   name: string;
-  entityType?: 'table' | 'view' | 'materialized-view';
+  entityType: 'table' | 'view' | 'materialized-view' | 'routine'
+}
+
+export interface TableOrView extends DatabaseEntity {
   columns?: TableColumn[];
+  partitions?: TablePartition[];
+  tabletype?: string | null
+  parenttype?: string | null
+  engine?: string
 }
 
 export interface TableIndex {
@@ -34,9 +51,10 @@ export interface TableIndex {
   table: string
   schema: string
   name: string
-  columns: string,
+  columns: IndexColumn[]
   unique: boolean
-  primary: boolean  
+  primary: boolean
+  nullsNotDistinct?: boolean // for postgres 15 and above https://www.postgresql.org/about/featurematrix/detail/392/
 }
 
 export interface TableTrigger {
@@ -49,14 +67,21 @@ export interface TableTrigger {
   schema?: string
 }
 
+export interface TablePartition {
+  name: string;
+  schema: string;
+  expression: string;
+  num: number;
+}
+
 export interface TableProperties {
   description?: string
   size?: number
   indexSize?: number
-  length: number
   indexes: TableIndex[]
   relations: TableKey[]
   triggers: TableTrigger[]
+  partitions?: TablePartition[]
   owner?: string,
   createdAt?: string
 }
@@ -68,10 +93,14 @@ export interface TableColumn {
   tableName?: string
 }
 
-export interface ExtendedTableColumn extends TableColumn {
+export interface ExtendedTableColumn extends SchemaItem {
   ordinalPosition: number
-  nullable: boolean
-  defaultValue: any
+  schemaName?: string
+  tableName: string
+  hasDefault?: boolean
+  generated?: boolean
+  array?: boolean
+  bksField: BksField
 }
 
 export interface PrimaryKeyColumn {
@@ -106,7 +135,8 @@ export interface OrderBy {
 export interface TableFilter {
   field: string;
   type: string;
-  value: string;
+  value?: string | string[];
+  op?: 'AND' | 'OR';
 }
 
 export interface IDbInsertValue {
@@ -121,9 +151,15 @@ export interface IDbInsert {
 
 export interface TableResult {
   result: any[];
-  fields: string[];
-  totalRecords: Number;
+  fields: BksField[];
 }
+
+export interface BksField {
+  name: string;
+  bksType: BksFieldType;
+}
+
+export type BksFieldType = 'BINARY' | 'UNKNOWN';
 
 export interface TableChanges {
   inserts: TableInsert[];
@@ -132,47 +168,37 @@ export interface TableChanges {
 }
 
 
-export interface ColumnChange {
-  table: string
-  schema?: string
-  changeType: 'columnName' | 'dataType' | 'nullable' | 'defaultValue'
-  columnName: string
-  newValue: string | boolean
-}
+// AlterTableSpec is in @shared
 
 export interface TableInsert {
-  table: string;
+  table: string
   schema?: string
-  data: object[];
+  dataset?: string
+  data: Record<string, any>[]
+}
+
+export interface PKSelector {
+  column: string
+  value: any
 }
 
 export interface TableUpdate {
   table: string;
   column: string;
-  pkColumn: string;
-  primaryKey: any;
+  primaryKeys: PKSelector[]
   schema?: string;
+  // FIXME: Make this `dataType`, the same as we use for TableColumn
+  dataset?: string
   columnType?: string;
+  columnObject?: ExtendedTableColumn
   value: any;
 }
 
 export interface TableDelete {
   table: string;
-  pkColumn: string;
+  primaryKeys: PKSelector[]
   schema?: string;
-  primaryKey: string;
-}
-
-export interface TableKey {
-  toTable: string;
-  toSchema: string;
-  toColumn: string;
-  fromTable: string;
-  fromSchema: string;
-  fromColumn: string;
-  constraintName: string;
-  onUpdate?: string;
-  onDelete?: string;
+  dataset?: string
 }
 
 export type TableUpdateResult = any;
@@ -193,10 +219,8 @@ export const RoutineTypeNames = {
   'procedure': "Stored Procedure"
 };
 
-export interface Routine {
+export interface Routine extends DatabaseEntity {
   id: string;
-  schema?: string;
-  name: string;
   returnType: string;
   returnTypeLength?: number;
   routineParams?: RoutineParam[];
@@ -204,10 +228,19 @@ export interface Routine {
   type: RoutineType;
 }
 
+// NOTE (day): note sure if this is really where we want to put edit partitions?
 export interface SupportedFeatures {
   customRoutines: boolean;
   comments: boolean;
   properties: boolean;
+  partitions: boolean;
+  editPartitions: boolean;
+  backups: boolean;
+  // Some databases support a directory backup format.
+  backDirFormat: boolean;
+  restore: boolean;
+  indexNullsNotDistinct: boolean; // for postgres 15 and above
+  transactions: boolean;
 }
 
 export interface FieldDescriptor {
@@ -229,4 +262,100 @@ export type QueryResult = NgQueryResult[];
 export interface CancelableQuery {
   execute: () => Promise<QueryResult>;
   cancel: () => Promise<void>;
+}
+
+// Backups
+export interface SelectControlOption {
+  name: string,
+  value: string
+}
+
+export type BackupFormat = SelectControlOption
+
+export interface SupportedBackupFeatures {
+  selectObjects: boolean,
+  settings: boolean,
+}
+
+export class Command {
+  isSql: boolean;
+  sql: string;
+  env: any;
+  mainCommand: string;
+  options: string[];
+  postCommand?: Command;
+
+  constructor(value: Partial<Command>) {
+    Object.assign(this, value);
+  }
+}
+
+export class BackupTable {
+  objectName: string;
+  schemaName: string;
+  included: boolean;
+
+  constructor(value: Partial<BackupTable>) {
+    Object.assign(this, value);
+  }
+}
+
+export class BackupSchema {
+  objectName: string;
+  included: boolean;
+
+  constructor(value: Partial<BackupSchema>) {
+    Object.assign(this, value);
+  }
+}
+
+export type ControlType = 'select' | 'checkbox' | 'filepicker' | 'input' | 'info' | 'textarea';
+
+export interface CommandSettingControl {
+  controlType: ControlType | ((config: BackupConfig) => ControlType);
+  settingName?: string;
+  settingDesc: string;
+  required?: boolean;
+  selectOptions?: SelectControlOption[];
+  placeholder?: string;
+  show?: (config: BackupConfig) => boolean;
+  controlOptions?: any;
+  valid?: (config: BackupConfig) => boolean;
+  infoLink?: string;
+  infoLinkText?: string;
+  infoTitle?: string;
+  onValueChange?: (config: BackupConfig) => void;
+  actions?: CommandControlAction[];
+}
+
+export interface CommandControlAction {
+  disabled: boolean | ((config: BackupConfig) => boolean);
+  value?: string | ((config: BackupConfig) => string);
+  icon?: string | ((config: BackupConfig) => string);
+  onClick?: (config: BackupConfig) => void;
+  show?: (config: BackupConfig) => boolean;
+  tooltip?: string | ((config: BackupConfig) => string);
+}
+
+export interface CommandSettingSection {
+  header: string;
+  controls: CommandSettingControl[];
+  show?: (config: BackupConfig) => boolean;
+}
+
+export interface ImportFuncOptions {
+  clientExtras?: {[key: string]: any}
+  executeOptions?: {[key: string]: any}
+  importerOptions?: {[key: string]: any}
+  storeValues?: {[key: string]: any}
+}
+
+export interface ImportScriptFunctions {
+  step0?: (args?: any) => Promise<null|any>
+  beginCommand: (args?: any) => Promise<null|any>
+  truncateCommand: (args?: any) => Promise<null|any>
+  lineReadCommand: (sql: string|string[], args?: any) => Promise<null|any>,
+  commitCommand: (args?: any) => Promise<null|any>
+  rollbackCommand: (args?: any) => Promise<null|any>
+  finalCommand?: (args?: any) => Promise<any|null>
 }

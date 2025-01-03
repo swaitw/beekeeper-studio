@@ -1,16 +1,36 @@
 <template>
-  <div class="input-group" @click.prevent.stop="openFilePickerDialog" >
-    <input type="text" class="form-control clickable" placeholder="No file selected" :title="value" :value="value" :disabled="disabled" readonly>
-    <div class="input-group-append">
-      <a type="buttom" class="btn btn-flat" :class="{disabled}">{{buttonText}}</a>
+  <div
+    class="input-group"
+  >
+    <input
+      :id="inputId"
+      type="text"
+      class="form-control clickable"
+      placeholder="No file selected"
+      :title="value"
+      :value="inputValue"
+      :disabled="disabled"
+      readonly
+      @click.prevent.stop="openFilePickerDialog"
+    >
+    <div
+      class="input-group-append"
+      :class="{ 'not-last': hasOtherActions }"
+      @click.prevent.stop="openFilePickerDialog"
+    >
+      <a
+        type="button"
+        class="btn btn-flat"
+        :class="{disabled}"
+      >{{ buttonText }}</a>
     </div>
+    <slot name="actions" />
   </div>
 </template>
 
 <script>
-import { remote } from 'electron'
 
-
+/* options and all for the native file picker can be found here https://www.electronjs.org/docs/latest/api/dialog */
 export default {
   props: {
     value: {
@@ -22,6 +42,11 @@ export default {
       default: ''
     },
     showHiddenFiles: {
+      type: Boolean,
+      required: false,
+      default: false
+    },
+    multiple: {
       type: Boolean,
       required: false,
       default: false
@@ -43,12 +68,33 @@ export default {
     buttonText: {
       type: String,
       default: "Choose File"
+    },
+    inputId: {
+      type: String,
+      default: "file-picker"
+    }
+  },
+  computed: {
+    hasOtherActions() {
+      return !!this.$slots.actions;
+    },
+    inputValue() {
+      const files = this.value
+
+      if (Array.isArray(files)) {
+        if (files.length > 1) {
+          return `${files[0]} (${files.length} files)`
+        }
+        return files[0]
+      }
+
+      return files
     }
   },
   methods: {
     async openFilePickerDialog() {
       if(this.disabled) {
-        return 
+        return
       }
 
       const dialogConfig = {
@@ -63,14 +109,18 @@ export default {
         dialogConfig.properties.push('showHiddenFiles')
       }
 
+      if (this.multiple) {
+        dialogConfig.properties.push('multiSelections')
+      }
+
       let files
       if (this.save) {
-        files = [ remote.dialog.showSaveDialogSync({
+        files = [ this.$native.dialog.showSaveDialogSync({
           ...dialogConfig,
           ...this.options
         })]
       } else {
-        files = remote.dialog.showOpenDialogSync({
+        files = this.$native.dialog.showOpenDialogSync({
           ...dialogConfig,
           ...this.options
         })
@@ -82,7 +132,12 @@ export default {
 
       if (files) {
         if (!Array.isArray(files)) files = [files]
-        this.$emit('input', files[0])
+
+        if (this.multiple) {
+          this.$emit('input', files)
+        } else {
+          this.$emit('input', files[0])
+        }
       }
     }
   }

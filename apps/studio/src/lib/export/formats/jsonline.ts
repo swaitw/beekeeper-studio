@@ -1,21 +1,24 @@
+import { BasicDatabaseClient } from "@/lib/db/clients/BasicDatabaseClient";
 import { Export } from "@/lib/export";
-import { DBConnection } from '@/lib/db/client'
 import { TableFilter, TableOrView } from "../../db/models";
 import { ExportOptions } from "../models";
 
 export class JsonLineExporter extends Export {
-  public static extension: string = "jsonl"
+  public static extension = "jsonl"
   readonly format: string = 'jsonl'
-  rowSeparator: string = '\n'
+  rowSeparator = '\n'
 
   constructor(
     filePath: string,
-    connection: DBConnection,
+    connection: BasicDatabaseClient<any>,
     table: TableOrView,
+    query: string,
+    queryName: string,
     filters: TableFilter[] | any[],
-    options: ExportOptions
+    options: ExportOptions,
+    managerNotify: boolean = true
   ) {
-    super(filePath, connection, table, filters, options)
+    super(filePath, connection, table, query, queryName, filters, options,managerNotify)
   }
 
   async getHeader(): Promise<string> {

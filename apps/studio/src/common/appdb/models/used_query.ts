@@ -3,6 +3,11 @@ import { ApplicationEntity  } from './application_entity'
 
 @Entity({ name: 'used_query'})
 export class UsedQuery extends ApplicationEntity {
+  withProps(props?: any): UsedQuery {
+    if (props) UsedQuery.merge(this, props);
+    return this;
+  }
+
   @Column({type: "text", nullable: false})
   text!: string
 
@@ -19,9 +24,13 @@ export class UsedQuery extends ApplicationEntity {
   @Column({ type:'bigint', nullable: true})
   numberOfRecords?: BigInt
 
+  @Column({ type: 'integer', nullable: false, default: -1 })
+  workspaceId = -1
+
+
   @BeforeInsert()
   @BeforeUpdate()
-  setDefaultDatabase() {
+  setDefaultDatabase(): void {
     // shouldn't be not null, so need a default
     if (!this.database) {
       this.database = '[blank]'

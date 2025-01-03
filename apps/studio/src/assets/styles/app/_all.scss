@@ -1,6 +1,7 @@
 
 @import './_extends';
 @import './_layout';
+@import './typography';
 @import './sidebar/base';
 @import './titlebar';
 @import './app-menu';
@@ -12,4 +13,7 @@
 @import './connection-labels';
 @import './preloader';
 @import './export-modal';
-@import './tabs/table-properties';
+@import './tabs/all';
+@import './modals.scss';
+@import './tooltips.scss';
+@import './ultimate-only.scss';

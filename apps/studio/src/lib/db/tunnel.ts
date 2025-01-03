@@ -1,15 +1,18 @@
 // Copyright (c) 2015 The SQLECTRON Team
 import fs from 'fs'
 import path from 'path'
+import rawLog from "electron-log";
+import { Options, SSHConnection } from '../../vendor/node-ssh-forward/index'
+import appConfig from '@/common/platform_info'
 import pf from 'portfinder'
-import createLogger from '../logger';
-import { Options, SSHConnection } from 'node-ssh-forward'
-import appConfig from '../../config'
 
-import { resolveHomePathToAbsolute } from '../../common/utils'
-import { IDbConnectionServerConfig, IDbSshTunnel } from './client';
+import { IDbConnectionServerConfig } from './types';
+import { resolveHomePathToAbsolute } from '@/handlers/utils';
+import { IDbSshTunnel } from './backendTypes';
 
-const logger = createLogger('db:tunnel');
+const log = rawLog.scope('db:tunnel');
+const logger = () => log;
+
 export default function connectTunnel(config: IDbConnectionServerConfig): Promise<IDbSshTunnel> {
   logger().debug('setting up ssh tunnel')
 
@@ -20,6 +23,10 @@ export default function connectTunnel(config: IDbConnectionServerConfig): Promis
           throw new Error('Missing ssh config')
         }
 
+        // BUG FIX: As of Node 17, node prefers to resolve hostnames (eg 'localhost') using ipv6 by default rather than ipv4
+        // So we need to make sure we're consistent with what hostname we return
+        // localhost can be 127.0.0.1:port (ipv4), or :::port (ipv6) by default, depending.
+
         const sshConfig: Options = {
           endHost: config.ssh.host || '',
           endPort: config.ssh.port,
@@ -29,7 +36,10 @@ export default function connectTunnel(config: IDbConnectionServerConfig): Promis
           username: config.ssh.user || undefined,
           password: config.ssh.password || undefined,
           skipAutoPrivateKey: true,
-          noReadline: true
+          noReadline: true,
+          keepaliveInterval: config.ssh.keepaliveInterval,
+          // TODO: Move this to configuration defaults in the ini file
+          bindHost: '127.0.0.1'
         }
 
         if (config.ssh.useAgent && appConfig.sshAuthSock) {
@@ -45,6 +55,7 @@ export default function connectTunnel(config: IDbConnectionServerConfig): Promis
         logger().debug("connection created!")
 
         const localPort = await pf.getPortPromise({ port: 10000, stopPort: 60000 })
+        console.log("tunnel/ GOT TUNNEL PORT", localPort)
         // workaround for `getPortPromise` not releasing the port quickly enough
         await new Promise(resolve => setTimeout(resolve, 500));
         const tunnelConfig = {
@@ -52,18 +63,19 @@ export default function connectTunnel(config: IDbConnectionServerConfig): Promis
           toPort: config.port || 22,
           toHost: config.host
         }
+        console.log("tunnel config: ", tunnelConfig)
         const tunnel = await connection.forward(tunnelConfig)
         logger().debug('tunnel created!')
         const result = {
           connection: connection,
-          localHost: '127.0.0.1',
+          localHost: sshConfig.bindHost,
           localPort: localPort,
           tunnel: tunnel
         } as IDbSshTunnel
         resolve(result)
 
       } catch (ex) {
-        reject(ex)
+        reject(new Error('SSH Tunnel Connection Error: ' + ex.message));
       }
     })()
   })

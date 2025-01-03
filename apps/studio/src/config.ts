@@ -1,42 +1,51 @@
-import { remote } from 'electron'
-import { execSync } from 'child_process'
-import platformInfo from './common/platform_info'
-import { loadEncryptionKey } from './common/encryption_key'
+import { IPlatformInfo } from './common/IPlatformInfo';
+import { ConnectionTypes, keymapTypes } from './lib/db/types'
 
-const userDirectory = platformInfo.userDirectory
-
-if (remote?.process?.env?.DEBUG) {
-  localStorage.debug = remote.process.env.DEBUG
-}
+let platformInfo: IPlatformInfo;
+let userDirectory: string;
+let snapSshPlug: boolean;
 
 function hasSshKeysPlug() {
   if (!platformInfo.isSnap) return false;
 
   try {
-    const code = execSync('snapctl is-connected ssh-keys')
-    return Number(code) == 0
+    const code = window.main.hasSshKeysPlug();
+    return Number(code) === 0
   } catch (error) {
     return false
   }
 }
 
+export function buildConfig(platInfo: IPlatformInfo) {
+  platformInfo = platInfo;
+  userDirectory = platformInfo.userDirectory
+  snapSshPlug = hasSshKeysPlug();
+
+  if (platformInfo.debugEnabled && localStorage) {
+    localStorage.debug = platformInfo.DEBUG
+  }
+
+  return {
+    ...platformInfo,
+    snapSshPlug,
+    defaults: {
+      connectionTypes: ConnectionTypes,
+      keymapTypes: keymapTypes,
+    },
+    maxResults: 50000
+  }
+  
+}
+
 // this is available in vue as `this.$config`
 export default {
-  ...platformInfo,
+  ...window.platformInfo,
   userDirectory,
-  encryptionKey: loadEncryptionKey(),
-  snapSshPlug: hasSshKeysPlug(),
+  snapSshPlug,
 
   defaults: {
-    connectionTypes: [
-      { name: 'MySQL', value: 'mysql' },
-      { name: 'MariaDB', value: 'mariadb'},
-      { name: 'Postgres', value: 'postgresql' },
-      { name: 'SQLite', value: 'sqlite' },
-      { name: 'SQL Server', value: 'sqlserver' },
-      { name: 'Amazon Redshift', value: 'redshift' },
-      { name: 'CockroachDB', value: 'cockroachdb' }
-    ],
+    connectionTypes: ConnectionTypes,
+    keymapTypes: keymapTypes
   },
-  maxResults: 50000
+  maxResults: 50000,
 }

@@ -1,21 +1,20 @@
-@import "~codemirror/theme/xq-light";
-@import "./app/vendor/codemirror";
-
+@import "codemirror/theme/xq-light";
 
 // Global
 $badge-bg:                 rgba($theme-base, 0.1);
 
 // Sidebar
-$sidebar-list-icons:       darken($theme-primary, 15%);
+$sidebar-list-icons:       $theme-primary;
 
 // Editor
 $tabs-heading:             rgba($theme-base, 0.08);
-$tab-link:                 darken($theme-bg, 12%);
+$tab-link:                 darken($theme-bg, 4%);
 $codemirror-hint-bg:       darken($theme-bg, 2%);
 
 // Table Editing
 $row-highlight:            darken($query-editor-bg, 3%);
-$row-add:                  #56DAAC;
+$row-handle-selected: darken($query-editor-bg, 10%);
+$row-add:                  #5ff3c0;
 $row-delete:               #FC8A87;
 $row-error:                #F9B8B7;
 
@@ -42,9 +41,37 @@ $editor-statusbar:         rgba($theme-base, 0.035);
 }
 select {
   background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8' fill='rgba(0,0,0, 0.87)'><polygon points='0,0 8,0 4,4'/></svg>") no-repeat scroll 98% 60% transparent !important;
+  option {
+    &:hover {
+      color: white;
+      box-shadow: 0 0 10px 100px $brand-info inset;
+    }
+
+    &:checked {
+      color: inherit;
+      font-weight: bold;
+    }
+    &:disabled, &:disabled:hover, &:disabled:focus {
+      background: transparent!important;
+      color: $text-lighter!important;
+    }
+  }
 }
 ::selection {
   background: rgba($brand-info, 0.25);
+}
+
+x-buttons {
+  > x-button {
+    &.btn-primary {
+      &[menu] {
+        border-left: 1px solid rgba(white, 0.35);
+        &:hover {
+          border-left: 1px solid rgba(white, 0.35);
+        }
+      }
+    }
+  }
 }
 .btn {
   box-shadow: inset 0 0 0 1px rgba($theme-base, 0.035);
@@ -52,8 +79,11 @@ select {
 .btn-link, .btn-fab {
   box-shadow: none;
 }
+.btn-flat {
+  background: rgba($theme-base, 0.08);
+}
 .text-primary {
-  color: darken($theme-primary, 15%)!important;
+  color: $theme-primary!important;
 }
 .list-group {
   .list-item-btn {
@@ -79,6 +109,16 @@ select {
 .text-danger {
   color: $brand-danger!important;
 }
+.connection-main {
+  .card-flat {
+    background: rgba($theme-base, 0.035);
+  }
+}
+.connection-interface {
+  .page-content:before {
+    top: 0;
+  }
+}
 
 // File-Menu
 // ---------------------------------------
@@ -94,12 +134,24 @@ select {
   }
 }
 
+// Connection Label
+// -----------------------------------------
+.connection-label {
+  &.connection-label-color-yellow {
+    background-color: darken($theme-primary, 4%);
+    &:checked {
+      background-color: darken($theme-primary, 4%);
+    }
+  }
+}
+
 // Sidebar
 // ---------------------------------------
 .advanced-connection-settings {
   background: rgba($theme-base, 0.05);
 }
 #sidebar {
+  position: relative;
   .filter {
     .filter-actions {
       x-button {
@@ -122,6 +174,20 @@ select {
       }
     }
   }
+  .global-items {
+    .nav-item.selectable {
+      &:hover {
+        &:before {
+          background: rgba($theme-base, 0.38);
+        }
+      }
+      &:hover, &.active, &.active:hover {
+        &:before {
+          width: 2px;
+        }
+      }
+    }
+  }
 }
 .list-heading {
   .sub {
@@ -131,6 +197,9 @@ select {
       }
     }
   }
+}
+.item-icon {
+  color: darken($theme-primary, 6%);
 }
 
 // Editor
@@ -142,12 +211,27 @@ select {
   .nav-tabs {
     .nav-link {
       background: $tab-link;
-      // &.active {
-      //   box-shadow: inset 0 1px $theme-primary;
-      // }
+      &.active {
+        background: $query-editor-bg;
+        .tab-action {
+          background: linear-gradient(
+            90deg,
+            rgba($query-editor-bg,0) 0%,
+            rgba($query-editor-bg,1) 20%
+          );
+        }
+      }
     }
     .tab-action {
-      background: linear-gradient(-90deg, $tab-link 80%, $tab-link 100%);
+      top: 1px;
+      right: 0;
+      bottom: 1px;
+      border-radius: 0 6px 0 0;
+      background: linear-gradient(
+        90deg,
+        rgba($tab-link,0) 0%,
+        rgba($tab-link,1) 20%
+      );
     }
     .tab-close {
       .material-icons {
@@ -161,64 +245,95 @@ select {
 }
 
 // Tabulator
-.tabulator-table {
-  .tabulator-row {
-    &.inserted, 
-    &.inserted:hover {
-      background: $row-add;
-    }
-    &.deleted,
-    &.deleted:hover {
-      background: $row-delete;
-    }
-    &.edit-error {
-      background: $row-error!important;
-    }
-    .tabulator-cell {
-      &.edited,
-      &.edit-error,
-      &.edit-success {
-        @include cell-shadow;
-      }
-      &.edited {
-        background: $cell-edited;
-        &:hover {
-          background: darken($cell-edited, 5%);
+// -------------------------------
+.tabulator-tableholder {
+  .tabulator-table {
+    .tabulator-row {
+      &.tabulator-row-even,
+      &:nth-child(odd) {
+        &.inserted,
+        &.inserted:hover {
+          background: $row-add!important;
+          --row-bg-color: #{$row-add};
+          --row-hover-bg-color: rgba($theme-base, 0.05);
+        }
+        &.deleted,
+        &.deleted:hover {
+          background: $row-delete!important;
+          --row-bg-color: #{$row-delete};
+          --row-hover-bg-color: #{$row-delete};
+        }
+        &.edit-error {
+          background: $row-error!important;
+          --row-bg-color: #{$row-error};
         }
       }
       &.edit-error {
-        background: $cell-error;
-        &:hover {
-          background: darken($cell-error, 5%);
-        }
+        background: $row-error !important;
       }
-      &.edit-success {
-        background: $cell-success;
-        &:hover {
-          background: darken($cell-success, 5%);
+      .tabulator-cell {
+        &.edited,
+        &.edit-error,
+        &.edit-success {
+          @include cell-shadow;
         }
-      }
-      &.foreign-key-button {
-        .material-icons {
+        &.edited {
+          background: $cell-edited;
+          --row-bg-color: #{$cell-edited};
           &:hover {
-            color: $text-dark;
+            background: darken($cell-edited, 5%);
+            --row-hover-bg-color: darken($cell-edited, 5%);
           }
         }
+        &.edit-error {
+          background: $cell-error;
+          &:hover {
+            background: darken($cell-error, 5%);
+          }
+        }
+        &.edit-success {
+          background: $cell-success;
+          &:hover {
+            background: darken($cell-success, 5%);
+          }
+        }
+        &.foreign-key-button {
+          .material-icons {
+            &:hover {
+              color: $text-dark;
+            }
+          }
+        }
+        .null-value {
+          color: $text-light;
+        }
       }
     }
   }
+
 }
 .tabulator {
-  .tabulator-header {
-    background: $theme-bg;
-    .tabulator-col.foreign-key {
-      &:before {
-        color: darken($brand-primary, 15%);
+
+  .tabulator-loader {
+    .tabulator-loader-msg {
+      &.tabulator-loading {
+        background-color: white;
       }
+
     }
   }
-  .tabulator-tableHolder {
-    background: white;
+
+  .tabulator-header {
+    .tabulator-col {
+      &.foreign-key {
+        &:before {
+          color: darken($brand-primary, 6%);
+        }
+      }
+      .badge {
+        color: $text-light;
+      }
+    }
   }
 }
 .tabulator-row {
@@ -227,9 +342,173 @@ select {
   }
 }
 
+// Table Builder
+// -------------------------
+.table-builder .table-builder-wrap,
+.table-properties .table-properties-wrap {
+  .tabulator-row {
+    &.tabulator-row-even,
+    &:nth-child(odd) {
+      background: rgba($theme-base, 0.06);
+      --row-bg-color: #{rgba($theme-base, 0.06)};
+    }
+    &.inserted {
+      background: $row-add!important;
+      --row-bg-color: #{$row-add};
+    }
+  }
+}
+.table-builder {
+
+  .table-builder-header {
+    .form-group {
+      label {
+        color: $text-light;
+      }
+    }
+  }
+}
+
+// Schema Builder
+// ----------------------------------
+.schema-builder {
+
+  // Schema Header
+  .schema-header {
+    .table-title {
+      color: $text-light;
+    }
+  }
+
+  // Tabulator Header Row
+  .tabulator {
+    .tabulator-header {
+      .tabulator-col {
+        .tabulator-col-content {
+          .tabulator-col-title {
+            color: $text-lighter;
+          }
+        }
+      }
+    }
+  }
+
+  // Field Rows
+  .tabulator-row {
+    &.tabulator-row-even,
+    &:nth-child(odd) {
+      background: rgba($theme-base, 0.05);
+    }
+    .tabulator-cell {
+      color: $text-dark;
+      &.tabulator-editing {
+        box-shadow: inset 0 1px $theme-base;
+      }
+      &.no-edit-highlight {
+        &.tabulator-editing {
+          input {
+            &[type="checkbox"]:active,
+            &[type="checkbox"]:checked,
+            &[type="checkbox"]:checked:active {
+              background: rgba($theme-base, 0.5)!important;
+              color: $theme-bg!important;
+            }
+          }
+        }
+        &.edited {
+          input {
+            &[type="checkbox"]:active,
+            &[type="checkbox"]:checked,
+            &[type="checkbox"]:checked:active {
+              &:after {
+                color: white!important;
+              }
+            }
+          }
+        }
+      }
+      &.read-only {
+        input[type="checkbox"] {
+          &:active,
+          &:checked,
+          &:checked:active {
+            &:after {
+              color: $theme-base!important;
+            }
+          }
+        }
+        .tabulator-bks-checkbox {
+          input {
+            &:after {
+              color: $theme-primary;
+            }
+          }
+          &.editable {
+            input[type="checkbox"] {
+              box-shadow: inset 0 0 0 2px rgba($theme-base, 0.2)!important;
+              cursor: pointer!important;
+              &:active,
+              &:checked,
+              &:checked:active {
+                background: $theme-base!important;
+                &:after {
+                  color: $theme-bg!important;
+                }
+              }
+              &:focus {
+                box-shadow: inset 0 0 0 2px $theme-base!important;
+              }
+            }
+          }
+        }
+      }
+
+      .material-icons.clear {
+        color: $text-light;
+        &:hover {
+          color: $text-dark;
+        }
+      }
+
+      // Remove Cell
+      &.remove-btn {
+        .material-icons {
+          color: $text-lighter;
+          &:hover {
+            color: $text-dark;
+          }
+        }
+      }
+      .null-value {
+        color: $text-lighter;
+      }
+    }
+  }
+
+  // Resize Handle
+  .tabulator-row {
+    .tabulator-frozen {
+      &.tabulator-row-handle {
+        .tabulator-row-handle-box {
+          .tabulator-row-handle-bar {
+            background: $border-color;
+          }
+        }
+      }
+    }
+  }
+  .tabulator-row {
+    &.tabulator-moving {
+      background: lighten($theme-bg, 15%)!important;
+    }
+  }
+}
+
+
 // CodeMirror
+// ----------------------------------
 .CodeMirror-hints {
-  background: $codemirror-hint-bg;
+  background: darken($theme-bg, 5%)!important;
   li {
     &.CodeMirror-hint-active {
       background: $brand-info;
@@ -237,18 +516,46 @@ select {
     }
   }
 }
+
 .cm-s-monokai {
   span {
     .cm-string {
-      color: darken($theme-primary, 25%);
+      color: $brand-success;
+    }
+  }
+  .CodeMirror-line {
+    .cm-number {
+      color: $brand-warning;
     }
   }
 }
-.query-editor {
-  .CodeMirror-code {
-    .highlight {
-      background-color: rgba($brand-info, 0.2);
-    }
+
+
+.cm-s-monokai {
+  font-weight: 500;
+  span.cm-keyword {
+    color: $brand-pink;
+  }
+  span.cm-variable-2 {
+    color: $brand-secondary;
+  }
+  div.CodeMirror-selected {
+    background: rgba($theme-secondary, 0.25);
+  }
+  .CodeMirror-linenumber {
+    color: rgba($theme-base, 0.25);
+  }
+  .CodeMirror-line .cm-number {
+    color: $brand-warning;
+  }
+  .CodeMirror-line .cm-string {
+    color: darken($brand-success, 20%);
+  }
+  .CodeMirror-cursor {
+    border-color: $text-dark;
+  }
+  span.cm-bracket {
+    color: $text;
   }
 }
 
@@ -259,5 +566,25 @@ select {
 
 // Switch
 x-switch {
-  color: darken($theme-primary, 10%);
+  color: $theme-primary;
+}
+
+// Table Properties
+// -------------------------------
+.table-properties {
+  .nav-pills {
+    .nav-pill {
+      &.active {
+        color: $theme-secondary;
+        box-shadow: inset 0 -2px $theme-secondary;
+      }
+    }
+  }
+}
+
+// Quicksearch
+.quicksearch {
+  .quicksearch-bg {
+    background: rgba(darken($theme-bg, 8%), 0.5);
+  }
 }

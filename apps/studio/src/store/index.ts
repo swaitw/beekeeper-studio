@@ -1,46 +1,78 @@
 import _ from 'lodash'
 import Vue from 'vue'
 import Vuex from 'vuex'
-import username from 'username'
-// import VueXPersistence from 'vuex-persist'
 
-import { UsedConnection } from '../common/appdb/models/used_connection'
-import { SavedConnection } from '../common/appdb/models/saved_connection'
-import { FavoriteQuery } from '../common/appdb/models/favorite_query'
-import { UsedQuery } from '../common/appdb/models/used_query'
-import ConnectionProvider from '../lib/connection-provider'
 import ExportStoreModule from './modules/exports/ExportStoreModule'
 import SettingStoreModule from './modules/settings/SettingStoreModule'
-import { DBConnection } from '../lib/db/client'
-import { ExtendedTableColumn, Routine, TableColumn, TableOrView } from "../lib/db/models"
-import { IDbConnectionPublicServer } from '../lib/db/server'
+import { Routine, SupportedFeatures, TableOrView } from "../lib/db/models"
+import { IDbConnectionPublicServer } from '../lib/db/serverTypes'
 import { CoreTab, EntityFilter } from './models'
 import { entityFilter } from '../lib/db/sql_tools'
+import { BeekeeperPlugin } from '../plugins/BeekeeperPlugin'
 
-import RawLog from 'electron-log'
+import RawLog from 'electron-log/renderer'
+import { Dialect, DialectTitles, dialectFor } from '@shared/lib/dialects/models'
+import { PinModule } from './modules/PinModule'
+import { getDialectData } from '@shared/lib/dialects'
+import { SearchModule } from './modules/SearchModule'
+import { IWorkspace, LocalWorkspace } from '@/common/interfaces/IWorkspace'
+import { IConnection } from '@/common/interfaces/IConnection'
+import { DataModules } from '@/store/DataModules'
+import { TabModule } from './modules/TabModule'
+import { HideEntityModule } from './modules/HideEntityModule'
+import { PinConnectionModule } from './modules/PinConnectionModule'
+import { ElectronUtilityConnectionClient } from '@/lib/utility/ElectronUtilityConnectionClient'
+
+import { SmartLocalStorage } from '@/common/LocalStorage'
+
+import { LicenseModule } from './modules/LicenseModule'
+import { CredentialsModule, WSWithClient } from './modules/CredentialsModule'
+import { UserEnumsModule } from './modules/UserEnumsModule'
+import MultiTableExportStoreModule from './modules/exports/MultiTableExportModule'
+import ImportStoreModule from './modules/imports/ImportStoreModule'
+import { BackupModule } from './modules/backup/BackupModule'
+import globals from '@/common/globals'
+import { CloudClient } from '@/lib/cloud/CloudClient'
+import { ConnectionTypes } from '@/lib/db/types'
+
 
 const log = RawLog.scope('store/index')
 
-interface State {
-  usedConfig: Nullable<SavedConnection>,
-  usedConfigs: UsedConnection[],
+const tablesMatch = (t: TableOrView, t2: TableOrView) => {
+  return t2.name === t.name &&
+    t2.schema === t.schema &&
+    t2.entityType === t.entityType
+}
+
+
+export interface State {
+  connection: ElectronUtilityConnectionClient,
+  usedConfig: Nullable<IConnection>,
   server: Nullable<IDbConnectionPublicServer>,
-  connection: Nullable<DBConnection>,
+  connected: boolean,
+  connectionType: Nullable<string>,
+  supportedFeatures: Nullable<SupportedFeatures>,
   database: Nullable<string>,
+  databaseList: string[],
   tables: TableOrView[],
   routines: Routine[],
   entityFilter: EntityFilter,
+  columnsLoading: string,
   tablesLoading: string,
-  pinStore: {
-    [x: string]: string[]
-  },
-  connectionConfigs: UsedConnection[],
-  history: UsedQuery[],
-  favorites: UsedQuery[],
+  tablesInitialLoaded: boolean,
   username: Nullable<string>,
   menuActive: boolean,
   activeTab: Nullable<CoreTab>,
   selectedSidebarItem: Nullable<string>,
+  workspaceId: number,
+  storeInitialized: boolean,
+  windowTitle: string,
+  defaultSchema: string,
+  versionString: string,
+  connError: string
+  expandFKDetailsByDefault: boolean
+  openDetailView: boolean
+  tableTableSplitSizes: number[]
 }
 
 Vue.use(Vuex)
@@ -49,45 +81,107 @@ Vue.use(Vuex)
 const store = new Vuex.Store<State>({
   modules: {
     exports: ExportStoreModule,
-    settings: SettingStoreModule
+    settings: SettingStoreModule,
+    pins: PinModule,
+    tabs: TabModule,
+    search: SearchModule,
+    licenses: LicenseModule,
+    credentials: CredentialsModule,
+    hideEntities: HideEntityModule,
+    userEnums: UserEnumsModule,
+    pinnedConnections: PinConnectionModule,
+    multiTableExports: MultiTableExportStoreModule,
+    imports: ImportStoreModule,
+    backups: BackupModule
   },
   state: {
+    connection: new ElectronUtilityConnectionClient(),
     usedConfig: null,
-    usedConfigs: [],
     server: null,
-    connection: null,
+    connected: false,
+    connectionType: null,
+    supportedFeatures: null,
     database: null,
+    databaseList: [],
     tables: [],
     routines: [],
     entityFilter: {
       filterQuery: undefined,
       showTables: true,
       showRoutines: true,
-      showViews: true
+      showViews: true,
+      showPartitions: false
     },
-    tablesLoading: "loading tables...",
-    pinStore: {},
-    connectionConfigs: [],
-    history: [],
-    favorites: [],
+    tablesLoading: null,
+    columnsLoading: null,
+    tablesInitialLoaded: false,
     username: null,
     menuActive: false,
     activeTab: null,
-    selectedSidebarItem: null
+    selectedSidebarItem: null,
+    workspaceId: LocalWorkspace.id,
+    storeInitialized: false,
+    windowTitle: 'Beekeeper Studio',
+    defaultSchema: null,
+    versionString: null,
+    connError: null,
+    expandFKDetailsByDefault: SmartLocalStorage.getBool('expandFKDetailsByDefault'),
+    openDetailView: SmartLocalStorage.getBool('openDetailView', true),
+    tableTableSplitSizes: SmartLocalStorage.getJSON('tableTableSplitSizes', globals.defaultTableTableSplitSizes),
   },
+
   getters: {
+    defaultSchema(state) {
+      return state.defaultSchema;
+    },
+    friendlyConnectionType(state) {
+      return ConnectionTypes.find((ct) => ct.value == state.connectionType)?.name ?? "Default Connection"
+    },
+    workspace(state, getters): IWorkspace {
+      if (state.workspaceId === LocalWorkspace.id) return LocalWorkspace
+
+      const workspaces: WSWithClient[] = getters['credentials/workspaces']
+      const result = workspaces.find(({workspace }) => workspace.id === state.workspaceId)
+
+      if (!result) return LocalWorkspace
+      return result.workspace
+    },
+    isCloud(state: State) {
+      return state.workspaceId !== LocalWorkspace.id
+    },
+    workspaceEmail(_state: State, getters): string | null {
+      return getters.cloudClient?.options?.email || null
+    },
+    pollError(state) {
+      return DataModules.map((module) => {
+        const pollError = state[module.path]['pollError']
+        return pollError || null
+      }).find((e) => !!e)
+    },
+    cloudClient(state: State, getters): CloudClient | null {
+      if (state.workspaceId === LocalWorkspace.id) return null
+
+      const workspaces: WSWithClient[] = getters['credentials/workspaces']
+      const result = workspaces.find(({workspace}) => workspace.id === state.workspaceId)
+      if (!result) return null
+      return result.client.cloneWithWorkspace(result.workspace.id)
+
+    },
+    dialect(state: State): Dialect | null {
+      if (!state.usedConfig) return null
+      return dialectFor(state.usedConfig.connectionType)
+    },
+    dialectTitle(_state: State, getters): string {
+      return DialectTitles[getters.dialect] || getters.dialect || 'Unknown'
+    },
+    dialectData(_state: State, getters) {
+      return getDialectData(getters.dialect)
+    },
     selectedSidebarItem(state) {
       return state.selectedSidebarItem
     },
-    orderedUsedConfigs(state) {
-      return _.sortBy(state.usedConfigs, 'updatedAt').reverse()
-    },
-    pinned(state) {
-      const result = state.database ? state.pinStore[state.database] : null
-      return _.isNil(result) ? [] : result
-    },
     filteredTables(state) {
-      return entityFilter(state.tables, state.entityFilter)
+      return entityFilter(state.tables, state.entityFilter);
     },
     filteredRoutines(state) {
       return entityFilter(state.routines, state.entityFilter)
@@ -96,14 +190,21 @@ const store = new Vuex.Store<State>({
       // if no schemas, just return a single schema
       if (_.chain(state.tables).map('schema').uniq().value().length <= 1) {
         return [{
-          schema: null,
-          skipSchemaDisplay: true,
+          schema: g.schemas[0] || null,
+          skipSchemaDisplay: g.schemas.length < 2,
           tables: g.filteredTables,
           routines: g.filteredRoutines
         }]
       }
       const obj = _.chain(g.filteredTables).groupBy('schema').value()
       const routines = _.groupBy(g.filteredRoutines, 'schema')
+
+      for (const key in routines) {
+        if (!obj[key]) {
+            obj[key] = [];
+        }
+      }
+
       return _(obj).keys().map(k => {
         return {
           schema: k,
@@ -117,13 +218,47 @@ const store = new Vuex.Store<State>({
       }).value()
     },
     tablesHaveSchemas(_state, getters) {
-      return getters.schemaTables.length > 1
+      return getters.schemas.length > 1
     },
     connectionColor(state) {
       return state.usedConfig ? state.usedConfig.labelColor : 'default'
-    }
+    },
+    schemas(state) {
+      if (state.tables.find((t) => !!t.schema)) {
+        return _.uniq(state.tables.map((t) => t.schema));
+      }
+      return []
+    },
+    minimalMode(_state, getters) {
+      return getters['settings/minimalMode']
+    },
+    // TODO (@day): this may need to be removed
+    versionString(state) {
+      return state.server.versionString();
+    },
+    isCommunity(_state, _getters, _rootState, rootGetters) {
+      return rootGetters['licenses/isCommunity']
+    },
+    isUltimate(_state, _getters, _rootState, rootGetters) {
+      return rootGetters['licenses/isUltimate']
+    },
+    isTrial(_state, _getters, _rootState, rootGetters) {
+      return rootGetters['licenses/isTrial']
+    },
+    expandFKDetailsByDefault(state) {
+      return state.expandFKDetailsByDefault
+    },
+    openDetailView(state) {
+      return state.openDetailView
+    },
   },
   mutations: {
+    storeInitialized(state, b: boolean) {
+      state.storeInitialized = b
+    },
+    workspaceId(state, id: number) {
+      state.workspaceId = Number(id)
+    },
     selectSidebarItem(state, item: string) {
       state.selectedSidebarItem = item
     },
@@ -142,6 +277,9 @@ const store = new Vuex.Store<State>({
     showRoutines(state) {
       state.entityFilter.showRoutines = !state.entityFilter.showRoutines
     },
+    showPartitions(state) {
+      state.entityFilter.showPartitions = !state.entityFilter.showPartitions
+    },
     tabActive(state, tab: CoreTab) {
       state.activeTab = tab
     },
@@ -151,267 +289,272 @@ const store = new Vuex.Store<State>({
     setUsername(state, name) {
       state.username = name
     },
-    newConnection(state, payload) {
-      state.server = payload.server
-      state.usedConfig = payload.config
-      state.connection = payload.connection
-      state.database = payload.config.defaultDatabase
+    newConnection(state, config: Nullable<IConnection>) {
+      state.usedConfig = config
+      state.database = config?.defaultDatabase
     },
-
+    // this shouldn't be used at all
     clearConnection(state) {
       state.usedConfig = null
-      state.connection = null
+      state.connected = false
+      state.supportedFeatures = null
       state.server = null
       state.database = null
+      state.databaseList = []
       state.tables = []
       state.routines = []
       state.entityFilter = {
         filterQuery: undefined,
         showTables: true,
         showViews: true,
-        showRoutines: true
+        showRoutines: true,
+        showPartitions: false
       }
     },
-    updateConnection(state, {connection, database}) {
-      state.connection = connection
+    updateConnection(state, {database}) {
+      // state.connection = connection
       state.database = database
     },
+    databaseList(state, dbs: string[]) {
+      state.databaseList = dbs
+    },
+    unloadTables(state) {
+      state.tables = []
+      state.tablesInitialLoaded = false
+    },
     tables(state, tables: TableOrView[]) {
-      const tablesMatch = (t: TableOrView, t2: TableOrView) => {
-        return t2.name === t.name &&
-        t2.schema === t.schema &&
-        t2.entityType === t.entityType
-      }
-
       if(state.tables.length === 0) {
         state.tables = tables
-        return
+      } else {
+        // TODO: make this not O(n^2)
+        const result = tables.map((t) => {
+          t.columns ||= []
+          const existingIdx = state.tables.findIndex((st) => tablesMatch(st, t))
+          if (existingIdx >= 0) {
+            const existing = state.tables[existingIdx]
+            Object.assign(existing, t)
+            return existing
+          } else {
+            return t
+          }
+        })
+        state.tables = result
       }
-      
-      // TODO: make this not O(n^2)
-      const result = tables.map((t) => {
-        const existingIdx = state.tables.findIndex((st) => tablesMatch(st, t))
-        if ( existingIdx >= 0) {
-          const existing = state.tables[existingIdx]
-          Object.assign(existing, t)
-          return existing
-        } else {
-          return t
-        }
-      })
-      state.tables = result
-    },
 
+      if (!state.tablesInitialLoaded) state.tablesInitialLoaded = true
+
+    },
+    table(state, table: TableOrView) {
+      const existingIdx = state.tables.findIndex((st) => tablesMatch(st, table))
+      if (existingIdx >= 0) {
+        Vue.set(state.tables, existingIdx, table)
+      } else {
+        state.tables = [...state.tables, table]
+      }
+    },
     routines(state, routines) {
       state.routines = Object.freeze(routines)
+    },
+    columnsLoading(state, value: string) {
+      state.columnsLoading = value
     },
     tablesLoading(state, value: string) {
       state.tablesLoading = value
     },
-    addPinned(state, table: any) {
-      if (state.database && !state.pinStore[state.database]) {
-        Vue.set(state.pinStore, state.database, [table])
-      } else if (state.database && !state.pinStore[state.database].includes(table)) {
-        state.pinStore[state.database].push(table)
-      }
+    updateWindowTitle(state, title: string) {
+      state.windowTitle = title
     },
-    setPinned(state, pins) {
-      if (state.database) {
-        Vue.set(state.pinStore, state.database, pins)
-      }
+    defaultSchema(state, defaultSchema: string) {
+      state.defaultSchema = defaultSchema;
     },
-    removePinned(state, table) {
-      if (!state.database || !state.pinStore[state.database]) {
-        return
-      }
-      Vue.set(state.pinStore, state.database, _.without(state.pinStore[state.database], table))
+    connectionType(state, connectionType: string) {
+      state.connectionType = connectionType;
     },
-    config(state, newConfig) {
-      if (!state.connectionConfigs.includes(newConfig)) {
-        state.connectionConfigs.push(newConfig)
-      }
+    connected(state, connected: boolean) {
+      state.connected = connected;
     },
-    removeConfig(state, config) {
-      state.connectionConfigs = _.without(state.connectionConfigs, config)
+    supportedFeatures(state, features: SupportedFeatures) {
+      state.supportedFeatures = features;
     },
-    removeUsedConfig(state, config) {
-      state.usedConfigs = _.without(state.usedConfigs, config)
+    versionString(state, versionString: string) {
+      state.versionString = versionString;
     },
-    configs(state, configs: UsedConnection[]){
-      Vue.set(state, 'connectionConfigs', configs)
+    setConnError(state, err: string) {
+      state.connError = err;
     },
-    usedConfigs(state, configs: UsedConnection[]) {
-      Vue.set(state, 'usedConfigs', configs)
+    expandFKDetailsByDefault(state, value: boolean) {
+      state.expandFKDetailsByDefault = value
     },
-    history(state: State, history) {
-      state.history = history
+    openDetailView(state, value: boolean) {
+      state.openDetailView = value
     },
-    historyAdd(state: State, run: UsedQuery) {
-      state.history.unshift(run)
+    tableTableSplitSizes(state, value: number[]) {
+      state.tableTableSplitSizes = value
     },
-    historyRemove(state, historyQuery) {
-      state.history = _.without(state.history, historyQuery)
-    },
-    favorites(state: State, list) {
-      state.favorites = list
-    },
-    favoritesAdd(state: State, query) {
-      state.favorites.unshift(query)
-    },
-    removeUsedFavorite(state: State, favorite) {
-      state.favorites = _.without(state.favorites, favorite)
-    },
-
   },
   actions: {
-
-    async test(context, config: SavedConnection) {
-      // TODO (matthew): fix this mess.
-      if (context.state.username) {
-        const server = ConnectionProvider.for(config, context.state.username)
-        await server?.createConnection(config.defaultDatabase || undefined).connect()
-        server.disconnect()
-      } else {
-        throw "No username provided"
-      }
+    async test(context, config: IConnection) {
+      await Vue.prototype.$util.send('conn/test', { config, osUser: context.state.username });
     },
 
     async fetchUsername(context) {
-      const name = await username()
+      const name = await window.main.fetchUsername();
       context.commit('setUsername', name)
     },
 
     async openUrl(context, url: string) {
-      console.log("open url", url)
-      const conn = new SavedConnection();
-      if (!conn.parse(url)) {
-        throw `Unable to parse ${url}`
-      } else {
-        await context.dispatch('connect', conn)
-      }
+      const conn = await Vue.prototype.$util.send('appdb/saved/parseUrl', { url });
+      await context.dispatch('connect', conn)
     },
 
-    async connect(context, config: SavedConnection) {
+    updateWindowTitle(context) {
+      const config = context.state.usedConfig
+      let title = config
+        ? `${BeekeeperPlugin.buildConnectionName(config)} - Beekeeper Studio`
+        : 'Beekeeper Studio'
+      if (context.getters.isUltimate) {
+        title += ' Ultimate Edition'
+      }
+      if (context.getters.isTrial && context.getters.isUltimate) {
+        const days = context.rootGetters['licenses/licenseDaysLeft']
+        title += ` - Free Trial (${window.main.pluralize('day', days, true)} left)`
+      }
+      context.commit('updateWindowTitle', title)
+      window.main.setWindowTitle(title);
+    },
+
+    async saveConnection(context, config: IConnection) {
+      await context.dispatch('data/connections/save', config)
+      const isConnected = !!context.state.server
+      if(isConnected) context.dispatch('updateWindowTitle', config)
+    },
+
+    async connect(context, config: IConnection) {
       if (context.state.username) {
-        const server = ConnectionProvider.for(config, context.state.username)
-        // TODO: (geovannimp) Check case connection is been created with undefined as key
-        const connection = server.createConnection(config.defaultDatabase || undefined)
-        await connection.connect()
-        connection.connectionType = config.connectionType;
-        const lastUsedConnection = context.state.usedConfigs.find(c => c.hash === config.hash)
-        if (!lastUsedConnection) {
-          const usedConfig = new UsedConnection(config)
-          await usedConfig.save()
-        } else {
-          lastUsedConnection.updatedAt = new Date()
-          if (config.id) {
-            lastUsedConnection.savedConnectionId = config.id
-          }
-          await lastUsedConnection.save()
+        await Vue.prototype.$util.send('conn/create', { config, osUser: context.state.username })
+        const defaultSchema = await context.state.connection.defaultSchema();
+        const supportedFeatures = await context.state.connection.supportedFeatures();
+        const versionString = await context.state.connection.versionString();
+
+        if (supportedFeatures.backups) {
+          const serverConfig = await Vue.prototype.$util.send('conn/getServerConfig');
+          context.dispatch('backups/setConnectionConfigs', { config, supportedFeatures, serverConfig });
         }
-        context.commit('newConnection', {config: config, server, connection})
+
+        context.commit('defaultSchema', defaultSchema);
+        context.commit('connectionType', config.connectionType);
+        context.commit('connected', true);
+        context.commit('supportedFeatures', supportedFeatures);
+        context.commit('versionString', versionString);
+        context.commit('newConnection', config)
+
+        await context.dispatch('updateDatabaseList')
+        await context.dispatch('updateTables')
+        await context.dispatch('updateRoutines')
+        await context.dispatch('data/usedconnections/recordUsed', config)
+        context.dispatch('updateWindowTitle', config)
+
       } else {
         throw "No username provided"
+      }
+    },
+    async reconnect(context) {
+      if (context.state.connection) {
+        await context.state.connection.connect();
       }
     },
     async disconnect(context) {
       const server = context.state.server
       server?.disconnect()
       context.commit('clearConnection')
+      context.commit('newConnection', null)
+      context.dispatch('updateWindowTitle')
+      context.dispatch('refreshConnections')
+    },
+    async syncDatabase(context) {
+      await context.state.connection.syncDatabase();
     },
     async changeDatabase(context, newDatabase: string) {
-      if (context.state.server) {
-        const server = context.state.server
-        let connection = server.db(newDatabase)
-        if (! connection) {
-          connection = server.createConnection(newDatabase)
-          await connection.connect()
-        }
-        context.commit('updateConnection', {connection, database: newDatabase})
-        await context.dispatch('updateTables')
-        await context.dispatch('updateRoutines') 
-      }
+      log.info("Pool changing database to", newDatabase)
+      await Vue.prototype.$util.send('conn/changeDatabase', { newDatabase });
+      context.commit('updateConnection', {database: newDatabase})
+      await context.dispatch('updateTables')
+      await context.dispatch('updateDatabaseList')
+      await context.dispatch('updateRoutines')
     },
 
     async updateTableColumns(context, table: TableOrView) {
       log.debug('actions/updateTableColumns', table.name)
-      // we don't need to commit to the store, it should already be in the store.
-      const connection = context.state.connection
-      const columns = (table.entityType === 'materialized-view' ?
-        await connection?.listMaterializedViewColumns(table.name, table.schema) :
-        await connection?.listTableColumns(table.name, table.schema)) || []
+      try {
+        // FIXME: We should record which table we are loading columns for
+        //        so that we know where to show this loading message. Not just
+        //        show it for all tables.
+        context.commit("columnsLoading", "Loading columns...")
+        const columns = (table.entityType === 'materialized-view' ?
+            await context.state.connection.listMaterializedViewColumns(table.name, table.schema) :
+            await context.state.connection.listTableColumns(table.name, table.schema));
 
-      const newcols = columns.map((c) => {
-        `${c.columnName}${c.dataType}`
-      }).sort()
-
-      const existing = !table.columns ? [] : table.columns.map((c) => {
-        `${c.columnName}${c.dataType}`
-      }).sort()
-      
-      if(_.isEqual(newcols, existing)) {
-        return
-      }
-      table.columns = columns
-    },
-
-    async updateTables(context) {
-      // Ideally here we would run all queries in parallel
-      // however running through an SSH tunnel doesn't work
-      // it only supports one query at a time.
-
-      const schema = null
-
-      if (context.state.connection) {
-        try {
-          context.commit("tablesLoading", "Finding tables")
-          const onlyTables = await context.state.connection.listTables({ schema })
-          onlyTables.forEach((t) => {
-            t.entityType = 'table'
-          })
-          const views = await context.state.connection.listViews({ schema })
-          views.forEach((v) => {
-            v.entityType = 'view'
-          })
-
-          const materialized = await context.state.connection.listMaterializedViews({ schema })
-          materialized.forEach(v => v.entityType = 'materialized-view')
-          const tables = onlyTables.concat(views).concat(materialized)
-          context.commit("tablesLoading", `Loading ${tables.length} tables`)
-
-          const tableColumns = await context.state.connection.listTableColumns()
-          let viewColumns: TableColumn[] = []
-          for (let index = 0; index < materialized.length; index++) {
-            const view = materialized[index]
-            const columns = await context.state.connection.listMaterializedViewColumns(view.name, view.schema)
-            viewColumns = viewColumns.concat(columns)
-          }
-
-          type MaybeColumn = ExtendedTableColumn | TableColumn
-          const allColumns: MaybeColumn[]  = [...tableColumns, ...viewColumns]
-          log.info("ALL COLUMNS", allColumns)
-          tables.forEach((table) => {
-            table.columns = allColumns.filter(row => {
-              return row.tableName === table.name && (!table.schema || table.schema === row.schemaName)
-            })
-          })
-
-          context.commit('tables', tables)
-
-        } finally {
-          context.commit("tablesLoading", null)
+        const updated = _.xorWith(table.columns, columns, _.isEqual)
+        log.debug('Should I update table columns?', updated)
+        if (updated?.length) {
+          context.commit('table', { ...table, columns })
         }
+      } finally {
+        context.commit("columnsLoading", null)
+      }
+    },
+    async updateDatabaseList(context) {
+      const databaseList = await context.state.connection.listDatabases();
+      context.commit('databaseList', databaseList)
+    },
+    async updateTables(context) {
+      // FIXME: We should only load tables for the active/default schema
+      //        then we should load new tables when a schema is expanded in the sidebar
+      //        or for auto-complete in the editor.
+      //        Currently: Loads all tables, regardless of schema
+      try {
+        const schema = null
+        context.commit("tablesLoading", "Loading tables...")
+        const onlyTables = await context.state.connection.listTables(schema);
+        onlyTables.forEach((t) => {
+          t.entityType = 'table'
+        })
+        const views = await context.state.connection.listViews(schema);
+        views.forEach((v) => {
+          v.entityType = 'view'
+        })
+
+        const materialized = await context.state.connection.listMaterializedViews(schema);
+        materialized.forEach(v => v.entityType = 'materialized-view')
+        const tables = onlyTables.concat(views).concat(materialized)
+
+        // FIXME (matthew): We're doing another loop here for no reason
+        // so we're looping n*2 times
+        // Also this is a little duplicated from `updateTableColumns`, but it doesn't make sense
+        // to dispatch that separately as it causes blinking tabletable state.
+        for (const table of tables) {
+          const match = context.state.tables.find((st) => tablesMatch(st, table))
+          if (match?.columns?.length > 0) {
+            table.columns = (table.entityType === 'materialized-view' ?
+              await context.state.connection?.listMaterializedViewColumns(table.name, table.schema) :
+              await context.state.connection?.listTableColumns(table.name, table.schema)) || []
+          }
+        }
+        context.commit("tablesLoading", `Loading ${tables.length} tables`)
+
+        context.commit('tables', tables)
+      } finally {
+        context.commit("tablesLoading", null)
       }
     },
     async updateRoutines(context) {
-      if (!context.state.connection) return;
-      const connection = context.state.connection
-      const routines = await connection.listRoutines({ schema: null })
+      const routines: Routine[] = await context.state.connection.listRoutines(null);
+      routines.forEach((r) => r.entityType = 'routine')
       context.commit('routines', routines)
     },
-    async setFilterQuery(context, filterQuery) {
+    setFilterQuery: _.debounce(function (context, filterQuery) {
       context.commit('filterQuery', filterQuery)
-    },
+    }, 500),
     async pinTable(context, table) {
       table.pinned = true
       context.commit('addPinned', table)
@@ -428,67 +571,54 @@ const store = new Vuex.Store<State>({
       routine.pinned = true
       context.commit('addPinned', routine)
     },
-    async saveConnectionConfig(context, newConfig) {
-      await newConfig.save()
-      context.commit('config', newConfig)
-    },
-    async removeConnectionConfig(context, config) {
-      await config.remove()
-      context.commit('removeConfig', config)
-    },
-    async removeUsedConfig(context, config) {
-      await config.remove()
-      context.commit('removeUsedConfig', config)
-    },
-    async loadSavedConfigs(context) {
-      const configs = await SavedConnection.find()
-      context.commit('configs', configs)
-    },
-    async loadUsedConfigs(context) {
-      const configs = await UsedConnection.find({take: 10, order: {createdAt: 'DESC'}})
-      context.commit('usedConfigs', configs)
-    },
-    async updateHistory(context) {
-      const historyItems = await UsedQuery.find({ take: 100, order: { createdAt: 'DESC' } });
-      context.commit('history', historyItems)
-    },
-    async logQuery(context, details) {
-      if (context.state.database) {
-        const run = new UsedQuery()
-        run.text = details.text
-        run.database = context.state.database
-        run.status = 'completed'
-        run.numberOfRecords = details.rowCount
-        await run.save()
-        context.commit('historyAdd', run)
-      }
-    },
-    async updateFavorites(context) {
-      const items = await FavoriteQuery.find({order: { createdAt: 'DESC'}})
-      context.commit('favorites', items)
-    },
-    async saveFavorite(context, query: UsedQuery) {
-      query.database = context.state.database || 'default'
-      await query.save()
-      // otherwise it's already there!
-      if (!context.state.favorites.includes(query)) {
-        context.commit('favoritesAdd', query)
-      }
-    },
-    async removeFavorite(context, favorite) {
-      await favorite.remove()
-      context.commit('removeUsedFavorite', favorite)
-    },
-    async removeHistoryQuery(context, historyQuery) {
-      await historyQuery.remove()
-      context.commit('historyRemove', historyQuery)
-    },
     async menuActive(context, value) {
       context.commit('menuActive', value)
     },
     async tabActive(context, value: CoreTab) {
       context.commit('tabActive', value)
-    } 
+    },
+    async refreshConnections(context) {
+      context.dispatch('data/connectionFolders/load')
+      context.dispatch('data/connections/load')
+      await context.dispatch('pinnedConnections/loadPins');
+      await context.dispatch('pinnedConnections/reorder');
+    },
+    async initRootStates(context) {
+      await context.dispatch('fetchUsername')
+      await context.dispatch('licenses/init')
+      await context.dispatch('userEnums/init')
+      await context.dispatch('updateWindowTitle')
+      setInterval(
+        () => context.dispatch('licenses/sync'),
+        globals.licenseCheckInterval
+      )
+    },
+    licenseEntered(context) {
+      context.dispatch('updateWindowTitle')
+    },
+    toggleFlag(context, { flag, value }: { flag: string, value?: boolean }) {
+      if (typeof value === 'undefined') {
+        value = !context.state[flag]
+      }
+      SmartLocalStorage.setBool(flag, value)
+      context.commit(flag, value)
+      return value
+    },
+    toggleOpenDetailView(context, value?: boolean) {
+      if (typeof value === 'undefined') {
+        value = !context.state.openDetailView
+      }
+      SmartLocalStorage.setBool('openDetailView', value)
+      context.commit('openDetailView', value)
+      return value
+    },
+    setTableTableSplitSizes(context, value: number[]) {
+      SmartLocalStorage.addItem('tableTableSplitSizes', value)
+      context.commit('tableTableSplitSizes', value)
+    },
+    toggleExpandFKDetailsByDefault(context, value?: boolean) {
+      context.dispatch('toggleFlag', { flag: 'expandFKDetailsByDefault', value })
+    },
   },
   plugins: []
 })

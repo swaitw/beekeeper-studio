@@ -1,15 +1,22 @@
 import { IMenuActionHandler } from '@/common/interfaces/IMenuActionHandler'
-import { ipcRenderer } from 'electron'
 import _ from 'lodash'
 import {AppEvent} from '../../common/AppEvent'
+import rawLog from 'electron-log/renderer'
+
+const log = rawLog.scope("ClientMenuActionHandler")
+
 
 function send(name: string, arg?: any) {
-  ipcRenderer.send(AppEvent.menuClick, name, arg)
+  log.debug("Sending menu action to electron thread", name, arg)
+  window.main.send(AppEvent.menuClick, name, arg);
 }
 
 export default class ClientMenuActionHandler implements IMenuActionHandler {
 
-  constructor() {}
+  constructor() {
+    // TODO: implement
+  }
+  upgradeModal = () => send('upgradeModal')
 
   quit = () => send('quit')
   undo = () => send('undo')
@@ -24,21 +31,30 @@ export default class ClientMenuActionHandler implements IMenuActionHandler {
   fullscreen = () => send('fullscreen')
   about = () => send('about')
   devtools = () => send('devtools')
+  opendocs = () => send('opendocs')
+  contactSupport = () => send('contactSupport')
   newWindow = () => send('newWindow')
   newQuery = () => send('newQuery')
   newTab = () => send('newTab')
   closeTab = () => send('closeTab')
+  quickSearch  = () => send('quickSearch')
   switchTheme = (menuItem: Electron.MenuItem) => {
     const label = _.isString(menuItem) ? menuItem : menuItem.label
-    send('switchTheme', label.toLowerCase())
-  }
-  switchMenuStyle = (menuItem: Electron.MenuItem) => {
-    const label = _.isString(menuItem) ? menuItem : menuItem.label
-    send('switchMenuStyle', label.toLowerCase())
+    send('switchTheme', label.toLowerCase().replaceAll(" ", "-"))
   }
   reload = () => send('reload')
   disconnect = () => send('disconnect')
   addBeekeeper = () => send('addBeekeeper')
   toggleSidebar = () => send('toggleSidebar')
+  enterLicense = () => send('enterLicense')
+  backupDatabase = () => send('backupDatabase')
+  restoreDatabase = () => send('restoreDatabase')
+  exportTables = () => send('exportTables')
+  checkForUpdates = () => send('checkForUpdates')
+  importSqlFiles = () => send('importSqlFiles')
+  toggleMinimalMode = () => send('toggleMinimalMode')
+  switchLicenseState = (_menuItem, _win, type) => send('switchLicenseState', type)
+  toggleBeta = (menuItem) => {
+    send('toggleBeta', menuItem);
+  }
 }
-

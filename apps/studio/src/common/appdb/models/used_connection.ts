@@ -1,14 +1,12 @@
+import { IConnection, ISimpleConnection } from '@/common/interfaces/IConnection'
 import _ from 'lodash'
 import { Entity, Column} from "typeorm"
-import { DbConnectionBase, SavedConnection } from './saved_connection'
+import { DbConnectionBase } from './saved_connection'
 
 @Entity({ name: 'used_connection' })
-export class UsedConnection extends DbConnectionBase {
+export class UsedConnection extends DbConnectionBase implements ISimpleConnection {
 
-  name?: string
-
-  constructor(other: SavedConnection) {
-    super()
+  withProps(other: IConnection): UsedConnection {
     if (other) {
       this.connectionType = other.connectionType
       this.defaultDatabase = other.defaultDatabase
@@ -19,26 +17,37 @@ export class UsedConnection extends DbConnectionBase {
       this.sshHost = other.sshHost
       this.sshPort = other.sshPort
       this.sshBastionHost = other.sshBastionHost
+      this.sshKeepaliveInterval = other.sshKeepaliveInterval
       this.ssl = other.ssl
       this.sslCaFile = other.sslCaFile
       this.sslCertFile = other.sslCertFile
       this.sslKeyFile = other.sslKeyFile
-      this.name = other.name
-      if (other.id) {
-        this.savedConnectionId = other.id
+      this.readOnlyMode = other.readOnlyMode
+      if (other.id && other.workspaceId) {
+        this.connectionId = other.id
+        this.workspaceId = other.workspaceId
       }
+      this.options = other.options
+      this.trustServerCertificate = other.trustServerCertificate
+      this.redshiftOptions = other.redshiftOptions
+      this.cassandraOptions = other.cassandraOptions
+      this.socketPath = other.socketPath
+      this.socketPathEnabled = other.socketPathEnabled
+      this.bigQueryOptions = other.bigQueryOptions
+      this.azureAuthOptions = other.azureAuthOptions
+      // TEMP (@day): this is just till we fix the used conn duplication issue
+      this.authId = other.authId
+      this.libsqlOptions = other.libsqlOptions
+
     }
 
-  }
-
-  toNewConnection() {
-    const result = new SavedConnection()
-    _.assign(result, this)
-    result.id = null
-    return result
+    return this;
   }
 
   @Column({type: 'int', nullable: true})
-  savedConnectionId?: Nullable<number> = null
+  connectionId?: Nullable<number> = null
+
+  @Column({ type: 'int', nullable: false})
+  workspaceId = -1
 
 }

@@ -1,4 +1,3 @@
-@import '../extends';
 
 .CodeMirror {
   font-family: $font-family-mono, monospace;
@@ -6,17 +5,18 @@
   color: $text-dark!important;
   padding: 0.75rem 0;
   z-index: 1;
-}
-.CodeMirror-gutters {
-  border: 0!important;
-  background: transparent!important;
+  height: 100%;
 }
 .CodeMirror-code {
   line-height: 1.3!important;
 }
 .CodeMirror-gutters {
   border: 0!important;
-  background: transparent!important;
+  background: $query-editor-bg!important;
+}
+.CodeMirror-foldmarker {
+  color: $brand-primary;
+  text-shadow: none;
 }
 
 // Monokai
@@ -29,12 +29,13 @@
     color: $brand-secondary;
   }
   div.CodeMirror-selected {
-    background: rgba($theme-secondary, 0.2);
+    background: rgba($theme-base, 0.25);
   }
   .CodeMirror-linenumber {
-    color: rgba($theme-base, 0.25);
+    color: rgba($theme-base, 0.15);
   }
-  .CodeMirror-line .cm-number {
+  .CodeMirror-line .cm-number,
+  .CodeMirror-line .cm-string {
     color: $brand-primary;
   }
   .CodeMirror-cursor {
@@ -54,7 +55,7 @@
   padding: $gutter-h 0;
   border: 0;
   border-radius: 6px;
-  @extend .card-shadow;
+  @include card-shadow;
   li {
     &:hover {
       background: rgba($theme-base, 0.05);
@@ -70,4 +71,7 @@
   border-radius: 0;
   color: $text-dark;
   cursor: pointer;
+}
+.CodeMirror-scrollbar-filler {
+  background-color: transparent;
 }

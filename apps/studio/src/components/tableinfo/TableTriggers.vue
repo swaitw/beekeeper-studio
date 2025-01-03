@@ -1,34 +1,67 @@
 <template>
-  <div class="table-info-triggers">
-    <div class="table-subheader">
-      <div class="table-title">
-        <h2>Triggers</h2>
-      </div>
-      <div class="table-actions">
-        <!-- <a class="btn btn-flat btn-icon btn-small"><i class="material-icons">add</i> Trigger</a> -->
+  <div class="table-info-table view-only">
+    <div class="table-info-table-wrap">
+      <div class="center-wrap">
+        <div
+          class="notices"
+          v-if="notice"
+        >
+          <div class="alert alert-info">
+            <i class="material-icons-outlined">info</i>
+            <div>{{ notice }}</div>
+          </div>
+        </div>
+        <div class="table-subheader">
+          <div class="table-title">
+            <h2>Triggers</h2>
+          </div>
+          <div class="table-actions">
+            <!-- <a class="btn btn-flat btn-icon btn-small"><i class="material-icons">add</i> Trigger</a> -->
+          </div>
+        </div>
+        <div
+          class="table-triggers"
+          ref="tabulator"
+        />
       </div>
     </div>
-    <div class="card-flat">
-      <div class="table-triggers" ref="tabulator">
+
+    <div class="expand" />
+
+    <status-bar class="tabulator-footer">
+      <div class="flex flex-middle flex-right statusbar-actions">
+        <slot name="footer" />
+        <slot name="actions" />
       </div>
-    </div>
+    </status-bar>
   </div>
 </template>
 <script>
-import Tabulator from 'tabulator-tables'
+import {Tabulator, TabulatorFull} from 'tabulator-tables'
 import data_mutators from '../../mixins/data_mutators'
 import globals from '../../common/globals'
+import StatusBar from '../common/StatusBar.vue'
+import { mapGetters, mapState } from 'vuex'
+
 export default {
+  components: {
+    StatusBar,
+  },
   mixins: [data_mutators],
-  props: ["table", "connection", "tabId", "active", "properties"],
+  props: ["table", "tabId", "active", "properties"],
   data() {
     return {
       tableTriggers: null
     }
   },
   computed: {
+    ...mapState(['connectionType']),
+    ...mapGetters(['dialectData']),
+    notice() {
+      return this.dialectData.notices?.infoTriggers;
+    },
     tableColumns() {
-      return this.connection.connectionType === 'sqlite' ?
+      return this.connectionType === 'sqlite' ?
         this.sqliteTableColumns : this.normalTableColumns
     },
     sqliteTableColumns() {
@@ -42,7 +75,7 @@ export default {
         { field: 'name', title: "Name", tooltip: true},
         { field: 'timing', title: "Timing"},
         { field: 'manipulation', title: "Manipulation"},
-        { field: 'action', title: "Action", tooltip: true, maxInitialWidth: 500},
+        { field: 'action', title: "Action", tooltip: true, widthGrow: 2.5},
         { field: 'condition', title: "Condition", formatter: this.cellFormatter}
       ]
     },
@@ -56,14 +89,23 @@ export default {
     }
   },
   mounted() {
-    this.tabulator = new Tabulator(this.$refs.tabulator, {
+    this.tabulator = new TabulatorFull(this.$refs.tabulator, {
       columns: this.tableColumns,
       data: this.tableData,
-      tooltips: true,
-      columnMaxInitialWidth: globals.maxColumnWidthTableInfo,
-      placeholder: "No triggers"
+      height: 'auto',
+      columnDefaults: {
+        tooltip: true,
+        headerSort: true,
+        maxInitialWidth: globals.maxColumnWidthTableInfo,
+      },
+      placeholder: "No triggers",
+      layout: 'fitColumns'
+
 
     })
+  },
+  beforeDestroy() {
+    if (this.tabulator) this.tabulator.destroy()
   }
 }
 </script>

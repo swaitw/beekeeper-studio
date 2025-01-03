@@ -1,41 +1,83 @@
 
 <template>
-<nav class="flyout-nav" v-hotkey="allHotkeys"  :class="{active: menuActive}" ref="nav">
-  <!-- TOP MENU, eg File, Edit -->
-  <ul class="menu-bar">
-    <li @mouseover.prevent="setSelected(menu)" @dblclick.stop="noop()" @mouseleave.prevent="unselect(menu)" class="top-menu-item" :class="{selected: menu === selected}" v-for="menu in menus" :key="menu.label">
-      <a :class="{selected: menu === selected}" @mousedown.prevent="setActive(menu)"><span class="label">{{menu.label}}</span></a>
-      <!-- FIRST LEVEL MENU, eg New Window, New Tab -->
-      <ul>
-        <li v-hotkey="shortcut(item)"  class="menu-item" :class="{'has-children': !!item.submenu, ...hoverClass(item)}" v-for="(item, idx) in menu.submenu" :key="item.id || idx">
-          <a  @mousedown.prevent="noop()" @mouseup.prevent="handle(item)" @mouseover.prevent="setHover(item)" :class="hoverClass(item)">
-            <span class="label">{{item.label}}</span>
-            <span class="shortcut">{{shortcutText(item)}}</span>
-          </a>
-          <!-- Second Level Menu, eg Dark Theme, Light Theme -->
-          <ul v-if="item.submenu">
-            <li v-hotkey="shortcut(item)" class="menu-item" v-for="subitem in item.submenu" :key="subitem.label">
-              <a  @mouseover.prevent="setHover(subitem, item)" :class="hoverClass(subitem)" @mousedown.prevent="noop()"  @mouseup.prevent="handle(subitem)">
-                <span class="label">
-                  <span class="material-icons" v-if="subitem.checked">done</span>
-                  <span>{{subitem.label}}</span>
-                </span>
-              </a>
-            </li>
-          </ul>
-        </li>
-      </ul>
-    </li>
-  </ul>
-
-</nav>
+  <nav
+    class="flyout-nav"
+    v-hotkey="allHotkeys"
+    :class="{active: menuActive}"
+    ref="nav"
+  >
+    <!-- TOP MENU, eg File, Edit -->
+    <ul class="menu-bar">
+      <li
+        @mouseover.prevent="setSelected(menu)"
+        @dblclick.stop="noop()"
+        @mouseleave.prevent="unselect(menu)"
+        class="top-menu-item"
+        :class="{selected: menu === selected}"
+        v-for="menu in menus"
+        :key="menu.label"
+      >
+        <a
+          :class="{selected: menu === selected}"
+          @mousedown.prevent="setActive(menu)"
+        ><span class="label">{{ menu.label }}</span></a>
+        <!-- FIRST LEVEL MENU, eg New Window, New Tab -->
+        <ul>
+          <li
+            class="menu-item"
+            :class="{'has-children': !!item.submenu, ...hoverClass(item)}"
+            v-for="(item, idx) in (menu.submenu || [])"
+            :key="item.id || idx"
+          >
+            <a
+              @mousedown.prevent="noop()"
+              @mouseup.prevent="handle(item)"
+              @mouseover.prevent="setHover(item)"
+              :class="hoverClass(item)"
+            >
+              <span class="label">
+                <span 
+                  class="material-icons" 
+                  v-if="item.checked"
+                >done</span>
+                <span>{{ item.label }}</span>
+              </span>
+              <span class="shortcut">{{ shortcutText(item) }}</span>
+            </a>
+            <!-- Second Level Menu, eg Dark Theme, Light Theme -->
+            <ul v-if="item.submenu">
+              <li
+                class="menu-item"
+                v-for="subitem in (item.submenu || [])"
+                :key="subitem.label"
+              >
+                <a
+                  @mouseover.prevent="setHover(subitem, item)"
+                  :class="hoverClass(subitem)"
+                  @mousedown.prevent="noop()"
+                  @mouseup.prevent="handle(subitem)"
+                >
+                  <span class="label">
+                    <span
+                      class="material-icons"
+                      v-if="subitem.checked"
+                    >done</span>
+                    <span>{{ subitem.label }}</span>
+                  </span>
+                </a>
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </li>
+    </ul>
+  </nav>
 </template>
 
 <script>
 import _ from 'lodash'
 import ClientMenuActionHandler from '../../lib/menu/ClientMenuActionHandler'
 import MenuBuilder from '../../common/menus/MenuBuilder'
-import platformInfo from '../../common/platform_info'
 import { mapGetters } from 'vuex'
 
 
@@ -65,9 +107,11 @@ export default {
     allHotkeys() {
       const result = {}
       this.menus.forEach(menu => {
-        menu.submenu.forEach(item => {
+        menu.submenu?.forEach(item => {
           if (item.accelerator && item.click) {
-            result[this.shortcut(item)] = item.click
+            const shortcut = this.shortcut(item)
+            if (shortcut)
+              result[shortcut] = item.click
           }
         })
       })
@@ -82,7 +126,7 @@ export default {
     settings: {
       deep: true,
       handler() {
-        this.menuBuilder = new MenuBuilder(this.settings, this.actionHandler)
+        this.menuBuilder = new MenuBuilder(this.settings, this.actionHandler, this.$config)
         this.menus = this.menuBuilder.buildTemplate()
       }
     },
@@ -174,12 +218,12 @@ export default {
     },
     shortcutText(item) {
       if (!item.accelerator) return ""
-      const meta = platformInfo.isMac ? 'Cmd' : 'Ctrl'
+      const meta = this.$config.isMac ? 'Cmd' : 'Ctrl'
       return item.accelerator.replace('CommandOrControl', meta)
     },
     shortcut(item) {
-      if (!item.click || !item.accelerator || item.registerAccelerator === false) return {}
-      const ctrlKey = platformInfo.isMac ? 'meta' : 'ctrl'
+      if (!item.click || !item.accelerator || item.registerAccelerator === false) return null
+      const ctrlKey = this.$config.isMac ? 'meta' : 'ctrl'
       return item.accelerator
         .replace('CommandOrControl', ctrlKey)
         .replace('Plus', 'numpad +')
@@ -214,15 +258,19 @@ export default {
       }
     },
     noop() {
-
+      // Empty on purpose
     }
   },
-  mounted() {
-    this.menuBuilder = new MenuBuilder(this.$store.state.settings.settings, this.actionHandler)
+  async mounted() {
+    this.menuBuilder = new MenuBuilder(this.settings, this.actionHandler, this.$config)
     this.menus = this.menuBuilder.buildTemplate()
     document.addEventListener('click', this.maybeHideMenu)
     window.addEventListener('keydown', this.maybeCaptureKeydown, false)
   },
+  beforeDestroy() {
+    document.removeEventListener('click', this.maybeHideMenu)
+    window.removeEventListener('keydown', this.maybeCaptureKeydown, false)
+  }
 
 
 }

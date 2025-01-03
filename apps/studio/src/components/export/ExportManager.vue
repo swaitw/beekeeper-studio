@@ -1,91 +1,84 @@
 <template>
   <div class="export-manager">
     <ExportModal
-      v-if="table"
-      :connection="connection"
+      v-if="table || query"
       :table="table"
+      :query="query"
+      :query-name="queryName"
       :filters="filters"
       @export="startExport"
       @closed="handleDeadModal"
-    ></ExportModal>
-    <ExportNotification v-for="exporter in exports" :key="exporter.id" :exporter="exporter"></ExportNotification>
+    />
+    <ExportNotification
+      v-for="e in exports"
+      :key="e.id"
+      :exportId="e.id"
+    />
   </div>
 </template>
 <script lang="ts">
 import Vue from 'vue'
 import Noty from 'noty'
-import { mapMutations, mapGetters } from 'vuex'
+import { mapGetters, mapMutations } from 'vuex'
 import { AppEvent, RootBinding } from '../../common/AppEvent'
-import { DBConnection } from '../../lib/db/client'
 import { TableFilter, TableOrView } from '../../lib/db/models'
 import ExportNotification from './ExportNotification.vue'
 import ExportModal from './ExportModal.vue'
-import { CsvExporter, JsonExporter, JsonLineExporter, SqlExporter } from '../../lib/export'
-import { ExportProgress } from '../../lib/export/models'
+import { ExportProgress, ExportStatus, StartExportOptions } from '../../lib/export/models'
+import globals from '@/common/globals'
 
 interface ExportTriggerOptions {
   table?: TableOrView,
+  query?: string,
+  queryName?: string,
   filters?: TableFilter[]
 }
 
-
-const ExportClassPicker = {
-  'csv': CsvExporter,
-  'json': JsonExporter,
-  'sql': SqlExporter,
-  'jsonl': JsonLineExporter
-}
-
-interface StartExportOptions {
-  table: TableOrView,
-  filters: TableFilter[],
-  exporter: 'csv' | 'json' | 'sql' | 'jsonl'
-  filePath: string
-  options: {
-    chunkSize: number
-    deleteOnAbort: boolean
-    includeFilter: boolean
-  }
-  outputOptions: any
-}
-
-
 export default Vue.extend({
   components: { ExportModal, ExportNotification },
-  props: {
-    connection: DBConnection
-  },
+  props: [],
   data() {
     return {
       // these are like 'pending Export'
       table: (undefined as TableOrView | undefined),
+      query: '',
+      queryName: '',
       filters: (undefined as TableFilter[] | undefined),
     }
   },
   computed: {
-    ...mapGetters({ 'exports': 'exports/runningExports' }),
+    ...mapGetters({ exports: "exports/exports" }),
     rootBindings(): RootBinding[] {
       return [
-        { event: AppEvent.beginExport, handler: this.handleExportRequest }
+        { event: AppEvent.beginExport, handler: this.handleExportRequest },
       ]
     }
   },
   methods: {
     ...mapMutations({ addExport: "exports/addExport" }),
     async startExport(options: StartExportOptions) {
-        const exporter = new ExportClassPicker[options.exporter](
-          options.filePath,
-          this.connection,
-          options.table,
-          options.filters || [],
-          options.options,
-          options.outputOptions
-        )
-        this.addExport(exporter)
-        exporter.onProgress(this.notifyProgress.bind(this))
-        await exporter.exportToFile()
-        console.log("complete!")
-        const n = this.$noty.success(`Export of ${options.table.name} complete`, {
+      try {
+        const exp = await this.$util.send('export/add', {options});
+        this.addExport(exp);
+
+        const exportName = options.table ? options.table.name : options.queryName;
+
+        await this.$util.send('export/start', { id: exp.id });
+        const status = await this.$util.send('export/status', { id: exp.id });
+
+        if (status == ExportStatus.Error) {
+          const error = this.$util.send('export/error', { id: exp.id });
+          const error_notice = this.$noty.error(`Export of ${exportName} failed: ${error}`, {
+            buttons: [
+              Noty.button('Close', "btn btn-primary", () => {
+                error_notice.close()
+              })
+            ]
+          }).setTimeout(globals.errorNoticeTimeout)
+          return
+        }
+        if (status !== ExportStatus.Completed) return;
+        const n = this.$noty.success(`Export of ${exportName} complete`, {
           buttons: [
             Noty.button('Show', "btn btn-primary", () => {
               this.$native.files.showItemInFolder(options.filePath)
@@ -93,16 +86,25 @@ export default Vue.extend({
             })
           ]
         })
+      } catch (e) {
+        this.$noty.error(`Failed to export: ${e?.message ?? e}`, {
+        })
+      }
     },
     handleExportRequest(options?: ExportTriggerOptions): void {
       this.table = options?.table
+      this.query = options?.query
+      this.queryName = options?.queryName
       this.filters = options?.filters
     },
     handleDeadModal() {
       this.table = undefined
       this.filters = undefined
+      this.query = undefined
+      this.queryName = undefined
     },
     notifyProgress(_progress: ExportProgress) {
+      // Empty on purpose
     }
   },
   mounted() {

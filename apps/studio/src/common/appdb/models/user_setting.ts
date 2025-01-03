@@ -1,14 +1,13 @@
 import { ApplicationEntity } from "./application_entity";
 import _ from 'lodash'
 import platformInfo from '../../platform_info';
-
-const { Entity, Column } = require("typeorm");
+import { Entity, Column } from 'typeorm'
 
 export interface IGroupedUserSettings {
   [x: string]: UserSetting
 }
 
-enum UserSettingValueType {
+export enum UserSettingValueType {
   string = 0,
   int = 1,
   float = 2,
@@ -17,7 +16,7 @@ enum UserSettingValueType {
   boolean = 5,
 }
 
-type UserSettingValue = string | number | boolean | Array<any> | object | null
+type UserSettingValue = string | number | boolean | Array<any> | Record<string, any> | null
 
 const TypeDefaults = {
   0: "",
@@ -49,6 +48,7 @@ function getValue(valueType: UserSettingValueType, valueString: Nullable<string>
 
 function setValue(updated: UserSettingValue): Nullable<string> {
   if (_.isNull(updated)) return null
+  if (_.isBoolean(updated)) return updated ? 'true' : 'false'
   if (_.isString(updated)) {
     return updated
   }
@@ -57,16 +57,24 @@ function setValue(updated: UserSettingValue): Nullable<string> {
 
 @Entity({name: 'user_setting'})
 export class UserSetting extends ApplicationEntity {
+  withProps(props?: any): UserSetting {
+    if (props) UserSetting.merge(this, props);
+    return this;
+  }
+
   static THEME = 'theme'
-  static MenuStyle = 'menuStyle'
 
   static async all(): Promise<IGroupedUserSettings> {
     const settings = await UserSetting.find()
     return _(settings).groupBy('key').mapValues(vs => vs[0]).value() as IGroupedUserSettings
   }
 
-  static async set(key: string, value: string) {
-    let existing = await UserSetting.findOne({ key });
+  static async get(key: string) {
+    return await UserSetting.findOneBy({ key })
+  }
+
+  static async set(key: string, value: string): Promise<void> {
+    let existing = await UserSetting.findOneBy({ key });
     if (!existing) {
       existing = new UserSetting()
       existing.key = key
@@ -80,33 +88,42 @@ export class UserSetting extends ApplicationEntity {
   @Column({type: 'varchar', nullable: false, unique: true})
   key!: string
 
+  @Column({ type: 'varchar', nullable: false, name: 'userValue' })
   _userValue: Nullable<string> = null
-  @Column({type: 'varchar', nullable: false})
-  set userValue(updated) {
+
+  set userValue(updated: UserSettingValue) {
     this._userValue = setValue(updated)
   }
 
-  get userValue() {
+  get userValue(): UserSettingValue {
     return getValue(this.valueType, this._userValue)
   }
 
-  get value() {
+  get value(): UserSettingValue {
     const raw = this._userValue || this.platformDefault || this.defaultValue
     return getValue(this.valueType, raw)
   }
 
-  set value(updated) {
+  set value(updated: UserSettingValue) {
     this.userValue = updated
   }
 
-  get platformDefault() {
+  get valueAsBool() {
+    return !!this.value
+  }
+
+  get stringValue() {
+    return this.value.toString()
+  }
+
+  get platformDefault(): string {
     if (platformInfo.isMac) return this.macDefault
     if (platformInfo.isWindows) return this.windowsDefault
     return this.linuxDefault
   }
 
   @Column({type: 'varchar'})
-  defaultValue: string = ''
+  defaultValue = ''
 
   @Column({type: 'varchar'})
   linuxDefault?: string

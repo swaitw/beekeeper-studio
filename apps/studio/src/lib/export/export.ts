@@ -2,13 +2,13 @@ import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { promises } from 'fs'
-import { ElectronPlugin } from '../NativeWrapper'
+import { dialectFor } from '@shared/lib/dialects/models'
 import rawlog from 'electron-log'
 import { BeeCursor, TableColumn, TableFilter, TableOrView } from '../db/models'
-import { DBConnection } from '../db/client'
 import { ExportOptions, ExportStatus, ProgressCallback, ExportProgress } from './models'
 import _ from 'lodash'
 import { Mutators } from '../data/tools'
+import { BasicDatabaseClient } from '../db/clients/BasicDatabaseClient'
 
 const log = rawlog.scope('export/export')
 
@@ -16,15 +16,17 @@ export abstract class Export {
   // don't make stuff public you don't want observed in vue
   id: string
 
-  countExported: number = 0
-  countTotal: number = 0
+  countExported = 0
+  countTotal = 0
   error: Error | null = null
-  fileSize: number = 0
-  lastChunkTime: number = 0
+  fileSize = 0
+  lastChunkTime = 0
+
+  preserveComplex = true
   // see set status()
   private _status: ExportStatus = ExportStatus.Idle
-  timeElapsed: number = 0
-  timeLeft: number = 0
+  timeElapsed = 0
+  timeLeft = 0
   private cursor?: BeeCursor
   private columns?: TableColumn[]
   private fileHandle?: promises.FileHandle
@@ -34,24 +36,28 @@ export abstract class Export {
 
   constructor(
     public filePath: string,
-    public connection: DBConnection,
+    public connection: BasicDatabaseClient<any>,
     public table: TableOrView,
+    public query: string,
+    public queryName: string,
     public filters: TableFilter[] | any[],
     public options: ExportOptions,
+    public managerNotify = true
   ) {
     this.id = this.generateId()
   }
 
   abstract rowSeparator: string
+
+  needsFinalSeparator = true
   // do not add newlines / row separators
   abstract getHeader(columns: TableColumn[]): Promise<string>
   abstract getFooter(): string
   // do not add newlines / row separators
-  abstract formatRow(data: any[]): string
+  abstract formatRow(data: any[], columns?: TableColumn[]): string
 
-  protected rowToObject(row: any[]): Object {
-    let columns = this.dedupedColumns
-    if (!columns) columns = row.map((_r, i) => {
+  protected rowToObject(row: any[]): Record<string, any> {
+    const columns = this.dedupedColumns?.length ?  this.dedupedColumns : row.map((_r, i) => {
       return {dataType: 'unknown', columnName: `col_${i+1}`}
     })
     const names = columns.map(c => c.columnName)
@@ -74,11 +80,13 @@ export abstract class Export {
 
 
   set status(status: ExportStatus) {
+    // i thought you weren't supposed to mess with vue's private _properties
     this._status = status
     this.notify()
   }
 
   get status() {
+    // more accessing vue's private _properties
     return this._status
   }
 
@@ -98,6 +106,7 @@ export abstract class Export {
       status: this.status,
       percentComplete: this.percentComplete,
     }
+    // console.log('notify() calling callbacks', payload, 'callbacks: ', this.callbacks.progress)
     this.callbacks.progress.forEach(c => c(payload))
   }
 
@@ -106,7 +115,7 @@ export abstract class Export {
     const md5sum = crypto.createHash('md5')
 
     md5sum.update(Date.now().toString(), 'utf8')
-    md5sum.update(this.table.name)
+    md5sum.update(this.table ? this.table.name : this.queryName)
     md5sum.update(this.filePath)
 
     return md5sum.digest('hex')
@@ -115,49 +124,71 @@ export abstract class Export {
   async initExport(): Promise<void> {
     this.status = ExportStatus.Exporting
     this.countExported = 0
-    
+
 
     this.fileHandle = await fs.promises.open(this.filePath, 'w+')
-    const results = await this.connection.selectTopStream(
-      this.table.name,
-      [],
-      this.filters,
-      this.options.chunkSize,
-      this.table.schema,
-    )
+
+    let results;
+    if (this.table) {
+      results = await this.connection.selectTopStream(
+        this.table.name,
+        [],
+        this.filters,
+        this.options.chunkSize,
+        this.table.schema,
+      )
+    }
+    else {
+      results = await this.connection.queryStream(
+        this.query,
+        this.options.chunkSize,
+      )
+    }
+
     this.columns = results.columns
     this.cursor = results.cursor
 
-    log.debug('initializing export', results)
     this.countTotal = results.totalRows
     await this.cursor?.start()
     const header = await this.getHeader(results.columns)
 
     if (header) {
       await this.fileHandle.write(header)
-      await this.fileHandle.write(this.rowSeparator)
     }
   }
 
   async exportData(): Promise<void> {
       // keep going until we don't get any more results.
+      log.debug("running export")
       let rows: any[][]
+      let needsSeparator = false
       do {
-        log.info('exportData')
         if (!this.cursor) {
           throw new Error("Something went wrong")
         }
         rows = await this.cursor?.read()
-        // log.info(`read ${rows.length} rows`)
         for (let rI = 0; rI < rows.length; rI++) {
           const row = rows[rI];
-          const mutated = Mutators.mutateRow(row, this.columns?.map((c) => c.dataType), true)
-          const formatted = this.formatRow(mutated)
-          this.fileHandle?.write(formatted)
-          this.fileHandle?.write(this.rowSeparator)
+          const mutated = Mutators.mutateRow(row, this.columns?.map((c) => c.dataType), this.preserveComplex, dialectFor(this.connection.connectionType))
+          const formatted = this.formatRow(mutated, this.columns)
+
+          // needsSeparator allows us to skip adding the rowSeparator
+          // on the FINAL row of the file
+          if (needsSeparator === true) {
+            await this.fileHandle?.write(this.rowSeparator)
+          }
+          await this.fileHandle?.write(formatted)
+          if (rI === rows.length - 1 && !this.needsFinalSeparator) {
+            // do nothing
+            needsSeparator = true
+          } else {
+            await this.fileHandle?.write(this.rowSeparator)
+            needsSeparator = false
+          }
         }
         this.countExported += rows.length
 
+        // console.log('calculating time left')
         this.calculateTimeLeft()
         this.notify()
 
@@ -169,37 +200,38 @@ export abstract class Export {
   }
 
   async finalizeExport(): Promise<void> {
+    // we don't do final stuff if we aborted.
+    if (this.status === ExportStatus.Aborted) {
+      return;
+    }
     const footer = await this.getFooter()
     await this.fileHandle?.write(footer)
-    await this.fileHandle?.close()
-    this.fileHandle = undefined
     this.status = ExportStatus.Completed
   }
 
   async exportToFile(): Promise<void> {
     try {
+      log.debug("starting export")
       await this.initExport()
       await this.exportData()
       await this.finalizeExport()
 
+      await this.fileHandle?.close()
       if (this.status === ExportStatus.Aborted) {
         if (this.options.deleteOnAbort) {
           await promises.unlink(this.filePath)
         }
       }
-
-
     } catch (error) {
       this.status = ExportStatus.Error
       this.error = error
       log.error(error)
       await this.fileHandle?.close()
-
-
       if (this.options.deleteOnAbort) {
         await promises.unlink(this.filePath)
       }
-      throw error
+    } finally {
+      this.fileHandle = undefined
     }
   }
 
@@ -215,6 +247,7 @@ export abstract class Export {
   }
 
   onProgress(func: (progress: ExportProgress) => void): void {
+    // console.log('adding progress callback')
     this.callbacks.progress.push(func)
   }
 
@@ -228,11 +261,6 @@ export abstract class Export {
 
   pause(): void {
     this.status = ExportStatus.Paused
-  }
-
-
-  openFile(): void {
-    ElectronPlugin.files.open(this.filePath)
   }
 
   getFileName(): string {

@@ -1,19 +1,33 @@
 module.exports = {
   "root": true,
   "env": {
-    "node": true
+    "node": true,
+    // activate “es2020” globals to fix 'BigInt' is not defined
+    // https://futurestud.io/tutorials/eslint-how-to-fix-bigint-is-not-defined
+    "es2020": true,
   },
-  "ignorePatterns": ["node_modules", "dist", "apps/**/tsconfig.json"],
+  "ignorePatterns": ["node_modules", "dist", "apps/**/tsconfig.json", "*.png", "*.scss"],
+  "plugins": ["@typescript-eslint"],
   "extends": [
-    "plugin:vue/essential",
     "eslint:recommended",
-    "@vue/typescript"
+    "plugin:vue/essential",
+    "plugin:vue/strongly-recommended",
+    "plugin:@typescript-eslint/recommended",
   ],
   "rules": {
     "no-console": "off",
     "@typescript-eslint/no-unused-vars": "off",
-    "no-unused-vars": "off"
+    "@typescript-eslint/ban-ts-comment": "off",
+    "no-unused-vars": "off",
+    "@typescript-eslint/no-explicit-any": "off",
+    "no-explicit-any": "off",
+    "@typescript-eslint/explicit-module-boundary-types": "off",
+    "vue/require-prop-types": "off",
+    "vue/require-default-prop": "off",
+    "@typescript-eslint/no-non-null-assertion": "off",
+    "vue/max-attributes-per-line": "off"
   },
+  "parser": "vue-eslint-parser",
   "parserOptions": {
     "parser": "@typescript-eslint/parser",
     "ecmaFeatures": {

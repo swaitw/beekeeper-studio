@@ -1,32 +1,26 @@
-import path from 'path'
-import Crypto from 'crypto'
 import { Entity, Column, BeforeInsert, BeforeUpdate } from "typeorm"
-
-import {ApplicationEntity} from './application_entity'
-import { resolveHomePathToAbsolute } from '../../utils'
+import { ApplicationEntity } from './application_entity'
 import { loadEncryptionKey } from '../../encryption_key'
 import { ConnectionString } from 'connection-string'
 import log from 'electron-log'
-import { IDbClients } from '@/lib/db/client'
-import { EncryptTransformer } from '../transformers/Transformers'
-
+import { AzureCredsEncryptTransformer, EncryptTransformer } from '../transformers/Transformers'
+import { IConnection, SshMode } from '@/common/interfaces/IConnection'
+import { AzureAuthOptions, BigQueryOptions, CassandraOptions, ConnectionType, ConnectionTypes, LibSQLOptions, RedshiftOptions } from "@/lib/db/types"
+import { resolveHomePathToAbsolute } from "@/handlers/utils"
 
 const encrypt = new EncryptTransformer(loadEncryptionKey())
+const azureEncrypt = new AzureCredsEncryptTransformer(loadEncryptionKey())
 
-export const ConnectionTypes = [
-  { name: 'MySQL', value: 'mysql' },
-  { name: 'MariaDB', value: 'mariadb' },
-  { name: 'Postgres', value: 'postgresql' },
-  { name: 'SQLite', value: 'sqlite' },
-  { name: 'SQL Server', value: 'sqlserver' },
-  { name: 'Amazon Redshift', value: 'redshift' },
-  { name: 'CockroachDB', value: 'cockroachdb' }
-]
+export interface ConnectionOptions {
+  cluster?: string
+  connectionMethod?: string
+  connectionString?: string
+}
 
-function parseConnectionType(t: Nullable<IDbClients>) {
+function parseConnectionType(t: Nullable<ConnectionType>) {
   if (!t) return null
 
-  const mapping: {[x: string]: IDbClients} = {
+  const mapping: { [x: string]: ConnectionType } = {
     psql: 'postgresql',
     postgres: 'postgresql',
     mssql: 'sqlserver',
@@ -38,135 +32,209 @@ function parseConnectionType(t: Nullable<IDbClients>) {
 }
 
 export class DbConnectionBase extends ApplicationEntity {
+  withProps(_props?: any): DbConnectionBase {
+    return this;
+  }
 
-  _connectionType: Nullable<IDbClients> = null
+  _connectionType: Nullable<ConnectionType> = null
 
-  @Column({ type: 'varchar', name: 'connectionType'})
-  set connectionType(value: Nullable<IDbClients>) {
-    this._connectionType = parseConnectionType(value)
-    if (['mysql', 'mariadb'].includes(this._connectionType || '')) {
-      this.port = 3306
-    } else if (this._connectionType === 'postgresql') {
-      this.port = 5432
-    } else if (this._connectionType === 'sqlserver') {
-      this.port = 1433
-    } else if (this._connectionType === 'cockroachdb') {
-      this.port = 26257
+  @Column({ type: 'varchar', name: 'connectionType' })
+  public set connectionType(value: Nullable<ConnectionType>) {
+    if (this._connectionType !== value) {
+      const changePort = this._port === this.defaultPort
+      this._connectionType = parseConnectionType(value)
+      this._port = changePort ? this.defaultPort : this._port
     }
   }
 
-  get connectionType() {
+  public get connectionType() {
     return this._connectionType
   }
 
-  @Column({type:"varchar", nullable: true})
-  host: string = 'localhost'
+  @Column({ type: "varchar", nullable: true })
+  host = 'localhost'
 
-  @Column({type: "int", nullable: true})
-  port: Nullable<number> = null
+  _port: Nullable<number> = null
 
-  @Column({type: "varchar", nullable: true})
+  @Column({ type: "int", nullable: true })
+  public set port(v: Nullable<number>) {
+    this._port = v
+  }
+
+  public get port(): Nullable<number> {
+    return this._port
+  }
+
+  public get defaultPort() : Nullable<number> {
+    let port
+    switch (this.connectionType as string) {
+      case 'mysql':
+      case 'mariadb':
+        port = 3306
+        break
+      case 'tidb':
+        port = 4000
+        break
+      case 'postgresql':
+        port = 5432
+        break
+      case 'sqlserver':
+        port = 1433
+        break
+      case 'cockroachdb':
+        port = 26257
+        break
+      case 'oracle':
+        port = 1521
+        break
+      case 'cassandra':
+        port = 9042
+        break
+      case 'bigquery':
+        port = 443
+        break
+      case 'firebird':
+        port = 3050
+        break
+      default:
+        port = null
+    }
+
+    return port
+  }
+
+  _socketPath: Nullable<string> = null
+
+  @Column({ type: 'varchar', nullable: true })
+  public set socketPath(v: Nullable<string>) {
+    this._socketPath = v
+  }
+
+  public get socketPath(): Nullable<string> {
+    return this._socketPath || this.defaultSocketPath
+  }
+
+  public get defaultSocketPath(): Nullable<string> {
+    if (['mysql', 'mariadb'].includes(this.connectionType || '')) {
+      return '/var/run/mysqld/mysqld.sock'
+    } else if (this.connectionType === 'postgresql') {
+      return '/var/run/postgresql'
+    } else if (this.connectionType === 'tidb') {
+      return '/tmp/tidb.sock'
+    }
+    return null
+  }
+
+  @Column({ type: 'boolean', nullable: false, default: false })
+  socketPathEnabled = false
+
+  @Column({ type: "varchar", nullable: true })
   username: Nullable<string> = null
 
-  @Column({type: "varchar", nullable: true})
+  @Column({ type: "varchar", nullable: true })
   domain: Nullable<string> = null
 
-  @Column({type: "varchar", nullable: true})
+  @Column({ type: "varchar", nullable: true })
   defaultDatabase: Nullable<string> = null
 
-  @Column({type: "varchar", nullable: true})
+  @Column({ type: "varchar", nullable: true })
   uri: Nullable<string> = null
 
-  @Column({type: "varchar", length: 500, nullable: false})
+  @Column({ type: "varchar", length: 500, nullable: false })
   uniqueHash = "DEPRECATED"
 
-  @Column({type: 'boolean', nullable: false, default: false})
+  @Column({ type: 'boolean', nullable: false, default: false })
   sshEnabled = false
 
-  @Column({type: "varchar", nullable: true})
+  @Column({ type: "varchar", nullable: true })
   sshHost: Nullable<string> = null
 
-  @Column({type: "int", nullable: true})
-  sshPort: number = 22
+  @Column({ type: "int", nullable: true })
+  sshPort = 22
 
-  @Column({type: "varchar", nullable: true})
+  @Column({ type: "varchar", nullable: true })
   sshKeyfile: Nullable<string> = null
 
-  @Column({type: 'varchar', nullable: true})
+  @Column({ type: 'varchar', nullable: true })
   sshUsername: Nullable<string> = null
 
-  @Column({type: 'varchar', nullable: true})
+  @Column({ type: 'varchar', nullable: true })
   sshBastionHost: Nullable<string> = null
 
-  @Column({type: 'boolean', nullable: false, default: false})
-  ssl: boolean = false
+  @Column({ type: 'int', nullable: true })
+  sshKeepaliveInterval: Nullable<number> = 60
 
-  @Column({type: 'varchar', nullable: true})
+  @Column({ type: 'boolean', nullable: false, default: false })
+  ssl = false
+
+  @Column({ type: 'varchar', nullable: true })
   sslCaFile: Nullable<string> = null
 
-  @Column({type: 'varchar', nullable: true})
+  @Column({ type: 'varchar', nullable: true })
   sslCertFile: Nullable<string> = null
 
-  @Column({type: 'varchar', nullable: true})
+  @Column({ type: 'varchar', nullable: true })
   sslKeyFile: Nullable<string> = null
 
   // this only takes effect if SSL certs are provided
-  @Column({type: 'boolean', nullable: false})
-  sslRejectUnauthorized: boolean = true
+  @Column({ type: 'boolean', nullable: false })
+  sslRejectUnauthorized = true
 
-  // GETTERS
-  get hash() {
-    const str = [
-      this.host,
-      this.port,
-      this.uri,
-      this.sshHost,
-      this.sshPort,
-      this.defaultDatabase,
-      this.sshBastionHost,
-      this.sslCaFile,
-      this.sslCertFile,
-      this.sslKeyFile
-    ].map(part => part || "").join("")
-    return Crypto.createHash('md5').update(str).digest('hex')
-  }
+  @Column({type: 'boolean', nullable: false, default: false})
+  readOnlyMode = true
 
+  @Column({ type: 'simple-json', nullable: false })
+  options: ConnectionOptions = {}
 
-  get simpleConnectionString() {
-    if (this.connectionType === 'sqlite') {
-      return path.basename(this.defaultDatabase || "./unknown.db")
-    } else {
-      let connectionString = `${this.host}:${this.port}`;
-      if (this.defaultDatabase) {
-        connectionString += `/${this.defaultDatabase}`
-      }
-      return connectionString
-    }
-  }
+  @Column({ type: 'simple-json', nullable: false })
+  redshiftOptions: RedshiftOptions = {}
 
-  get fullConnectionString() {
-    if (this.connectionType === 'sqlite') {
-      return this.defaultDatabase || "./unknown.db"
-    } else {
-      let result = `${this.username || 'user'}@${this.host}:${this.port}`
+  @Column({type: 'simple-json', nullable: false})
+  cassandraOptions: CassandraOptions = {}
 
-      if (this.defaultDatabase) {
-        result += `/${this.defaultDatabase}`
-      }
+  @Column({ type: 'simple-json', nullable: false })
+  bigQueryOptions: BigQueryOptions = {}
 
-      if (this.sshHost) {
-        result += ` via ${this.sshUsername}@${this.sshHost}`
-        if (this.sshBastionHost) result += ` jump(${this.sshBastionHost})`
-      }
-      return result
-    }
-  }
+  @Column({ type: 'simple-json', nullable: false, transformer: [azureEncrypt]})
+  azureAuthOptions: AzureAuthOptions = {}
 
+  @Column({ type: 'integer', nullable: true})
+  authId: Nullable<number> = null
 
+  @Column({ type: 'simple-json', nullable: false })
+  libsqlOptions: LibSQLOptions = { mode: 'url' }
+
+  // this is only for SQL Server.
+  @Column({ type: 'boolean', nullable: false })
+  trustServerCertificate = false
+
+  // oracle only.
+  @Column({type: 'varchar', nullable: true})
+  serviceName: Nullable<string> = null
 }
 
-@Entity({ name: 'saved_connection'} )
-export class SavedConnection extends DbConnectionBase {
+@Entity({ name: 'saved_connection' })
+export class SavedConnection extends DbConnectionBase implements IConnection {
+
+  withProps(props?: any): SavedConnection {
+
+    if (props) {
+      if (props.connectionType) {
+        this.connectionType = props.connectionType;
+      }
+      SavedConnection.merge(this, props);
+    }
+
+    if (!this.createdAt) {
+      this.createdAt = new Date();
+    }
+
+    if (!this.updatedAt) {
+      this.updatedAt = new Date();
+    }
+
+    return this;
+  }
 
   @Column("varchar")
   name!: string
@@ -178,8 +246,14 @@ export class SavedConnection extends DbConnectionBase {
   })
   labelColor?: string = 'default'
 
-  @Column({type: 'boolean', default: true})
-  rememberPassword: boolean = true
+  @Column({ update: false, default: -1, type: 'integer' })
+  workspaceId = -1
+
+  @Column({ type: 'boolean', default: true })
+  rememberPassword = true
+
+  @Column({type: 'boolean', default: false})
+  readOnlyMode = false
 
   @Column({type: 'varchar', nullable: true, transformer: [encrypt]})
   password: Nullable<string> = null
@@ -190,12 +264,10 @@ export class SavedConnection extends DbConnectionBase {
   @Column({ type: 'varchar', nullable: true, transformer: [encrypt] })
   sshPassword: Nullable<string> = null
 
+  _sshMode: SshMode = "agent"
 
-
-  _sshMode: string = "agent"
-
-  @Column({name: "sshMode", type: "varchar", length: "8", nullable: false, default: "agent"})
-  set sshMode(value: string) {
+  @Column({ name: "sshMode", type: "varchar", length: "8", nullable: false, default: "agent" })
+  set sshMode(value: SshMode) {
     this._sshMode = value
     if (this._sshMode !== 'userpass') {
       this.sshPassword = null
@@ -209,9 +281,14 @@ export class SavedConnection extends DbConnectionBase {
     if (this._sshMode === 'keyfile' && !this.sshKeyfile) {
       this.sshKeyfile = resolveHomePathToAbsolute("~/.ssh/id_rsa")
     }
+
+    if (!this.sshKeepaliveInterval || this.sshKeepaliveInterval < 0) {
+      // store null if zero, empty or negative
+      this.sshKeepaliveInterval = null
+    }
   }
 
-  get sshMode() {
+  get sshMode(): SshMode {
     return this._sshMode
   }
 
@@ -219,26 +296,45 @@ export class SavedConnection extends DbConnectionBase {
     return url.includes("://")
   }
 
-  parse(url: string) {
+  parse(url: string): boolean {
     try {
       const goodEndings = ['.db', '.sqlite', '.sqlite3']
-      if(goodEndings.find((e) => url.endsWith(e)) && !this.smellsLikeUrl(url)) {
+      if (!this.smellsLikeUrl(url)) {
         // it's a sqlite file
-        this.connectionType = 'sqlite'
-        this.defaultDatabase = url
-        return true
+        if (goodEndings.find((e) => url.endsWith(e))) {
+          // it's a valid sqlite file
+          this.connectionType = 'sqlite'
+          this.defaultDatabase = url
+          return true
+        } else {
+          // do nothing, continue url parsing
+        }
       }
 
-      const parsed = new ConnectionString(url)      
-      this.connectionType = parsed.protocol as IDbClients || this.connectionType || 'postgresql'
+      const parsed = new ConnectionString(url.replaceAll(/\s/g, "%20"))
+      this.connectionType = parsed.protocol as ConnectionType || this.connectionType || 'postgresql'
       if (parsed.hostname && parsed.hostname.includes('redshift.amazonaws.com')) {
         this.connectionType = 'redshift'
+      }
+
+      if (parsed.hostname && parsed.hostname.includes('cockroachlabs.cloud')) {
+        this.connectionType = 'cockroachdb'
+        if (parsed.params?.options) {
+          // TODO: fix this
+          const regex = /--cluster=([A-Za-z0-9\-_]+)/
+          const clusters = parsed.params.options.match(regex)
+          this.options['cluster'] = clusters ? clusters[1] : undefined
+        }
+      }
+
+      if (parsed.params?.sslmode && parsed.params.sslmode !== 'disable') {
+        this.ssl = true
       }
       this.host = parsed.hostname || this.host
       this.port = parsed.port || this.port
       this.username = parsed.user || this.username
       this.password = parsed.password || this.password
-      this.defaultDatabase = parsed.path ? parsed.path[0] : null || this.defaultDatabase
+      this.defaultDatabase = parsed.path?.[0] ?? this.defaultDatabase
       return true
     } catch (ex) {
       log.error('unable to parse connection string, assuming sqlite file', ex)
@@ -248,7 +344,7 @@ export class SavedConnection extends DbConnectionBase {
 
   @BeforeInsert()
   @BeforeUpdate()
-  checkSqlite() {
+  checkSqlite(): void {
     if (this.connectionType === 'sqlite' && !this.defaultDatabase) {
       throw new Error("database path must be set for SQLite databases")
     }
@@ -256,7 +352,7 @@ export class SavedConnection extends DbConnectionBase {
 
   @BeforeInsert()
   @BeforeUpdate()
-  maybeClearPasswords() {
+  maybeClearPasswords(): void {
     if (!this.rememberPassword) {
       this.password = null
       this.sshPassword = null

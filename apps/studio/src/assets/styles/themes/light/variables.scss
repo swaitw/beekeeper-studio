@@ -1,8 +1,8 @@
 // Theme
 // -----------------------------
-$theme-bg:           white;
+$theme-bg:           #f8f8f8;
 $theme-base:         black;
-$theme-primary:      #fad83b;
+$theme-primary:      darken(#fad83b, 10%);
 $theme-secondary:    #0099ff;
 
 // Colors
@@ -32,7 +32,9 @@ $selection:                 rgba($theme-primary, 0.2);
 $input-highlight:           rgba($theme-base, 0.27);
 
 $db-select-text:            white;
-$query-editor-bg:           darken($theme-bg, 5%);
+$query-editor-bg:           white;
+$row-handle-selected: darken($query-editor-bg, 10%);
+$row-handle-hover:          darken($query-editor-bg, 5%);
 
 $titlebar-bg:               transparent;
 $global-sidebar-bg:         transparent;
@@ -42,3 +44,6 @@ $tabs-bg:                   transparent;
 $statusbar-bg:              rgba($theme-base, 0.1);
 // $statusbar-bg:             rgba($theme-primary, 0.4);
 $statusbar-text:            $theme-base;
+
+$grouped-tables-base: darken($theme-bg, 2%);
+$grouped-tables-light: darken($grouped-tables-base, 2%);

@@ -9,10 +9,10 @@
     height: 0;
     max-height: -webkit-fill-available;
     overflow-x: hidden;
-    padding: $gutter-h 0;
+    padding: 0 0 $gutter-h 0;
   }
   .list-group {
-    padding: $gutter-h 0;
+    padding: 0 0 $gutter-h 0;
     min-height: 105px;
   }
   .list-item {
@@ -37,6 +37,16 @@
       visibility: hidden;
     }
   }
+  .list-heading {
+    .actions {
+      display: flex;
+      x-button {
+        height: auto;
+        padding: 0;
+        box-shadow: none;
+      }
+    }
+  }
   .list-title {
     flex-grow: 1;
     overflow: hidden;
@@ -44,7 +54,10 @@
     .subtitle {
       font-size: 80%;
       color: $text-lighter;
-      @extend .truncate;
+      @include truncate;
+      span {
+        @include truncate;
+      }
     }
   }
   .list-item-btn {

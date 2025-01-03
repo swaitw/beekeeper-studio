@@ -1,15 +1,18 @@
 <template>
-  <a @click.prevent.stop="click"><slot></slot></a>
+  <a @click.prevent.stop="click"><slot /></a>
 </template>
-<script>
-import { remote } from 'electron'
-export default {
+<script lang="ts">
+import Vue from 'vue'
 
-  props: ['href'],
+export default Vue.extend({
+
+  props: {
+    href: String
+  },
   methods: {
     click() {
-      remote.shell.openExternal(this.href)
+      this.$native.openLink(this.href)
     }
   }
-}
+})
 </script>

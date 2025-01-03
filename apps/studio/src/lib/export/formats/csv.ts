@@ -1,5 +1,5 @@
+import { BasicDatabaseClient } from '@/lib/db/clients/BasicDatabaseClient'
 import Papa from 'papaparse'
-import { DBConnection } from "../../db/client"
 import { TableColumn, TableFilter, TableOrView } from "../../db/models"
 import { Export } from "../export"
 import { ExportOptions } from "../models"
@@ -12,7 +12,9 @@ interface OutputOptionsCsv {
 export class CsvExporter extends Export {
   static extension = "csv"
   readonly format: string = 'csv'
-  rowSeparator: string = '\n'
+  rowSeparator = '\n'
+
+  preserveComplex = false
 
   private outputOptions: OutputOptionsCsv
   private headerConfig: Papa.UnparseConfig
@@ -22,15 +24,18 @@ export class CsvExporter extends Export {
 
   constructor(
     filePath: string,
-    connection: DBConnection,
+    connection: BasicDatabaseClient<any>,
     table: TableOrView,
+    query: string,
+    queryName: string,
     filters: TableFilter[] | any[],
     options: ExportOptions,
     outputOptions: OutputOptionsCsv,
+    managerNotify: boolean = true
   ) {
-    super(filePath, connection, table, filters, options)
+    super(filePath, connection, table, query, queryName, filters, options, managerNotify)
     this.headerConfig = {
-      header: true,
+      header: table ? true : false, // dont know columns for query
       delimiter: outputOptions.delimiter,
     }
     this.outputOptions = outputOptions
@@ -38,9 +43,10 @@ export class CsvExporter extends Export {
   }
 
   async getHeader(columns: TableColumn[]): Promise<string> {
+    if (!columns) return ""
     const fields = columns.map(c => c.columnName)
     if (fields.length > 0 && this.outputOptions.header) {
-      return Papa.unparse([fields], this.headerConfig)
+      return Papa.unparse([fields], this.headerConfig) + this.rowSeparator
     }
     return ""
   }
